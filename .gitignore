@@ -1,0 +1,34 @@
+# ---- 产物与构建 ----
+dist/
+build/
+*.exe
+*.apk
+__pycache__/
+*.pyc
+
+# ---- 运行时数据（Edge UI profile / 内核包 / 日志 / 本地配置）----
+ui-profile/
+kernels/
+*.log
+*.part
+*.part.*
+_watchdog.bat
+_watchdog_run.vbs
+.update.lock
+.bapiminer_kernel.json
+client_config.json
+client_config.json.bak*
+client_config.json.before-*
+
+# ---- 服务端本地配置（含 admin token，勿提交）----
+server/config.json
+deploy/bundle/config.json
+deploy/bundle/*.zip
+data/
+kernels/
+
+# ---- 截图与临时 ----
+shots/
+tests/shots/
+*.png.tmp
+.DS_Store

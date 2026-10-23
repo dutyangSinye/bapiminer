@@ -1,0 +1,21 @@
+Traceback (most recent call last):
+  File "C:\Users\Admin\.workbuddy\binaries\python\envs\default\Lib\site-packages\paramiko\channel.py", line 697, in recv
+    out = self.in_buffer.read(nbytes, self.timeout)
+  File "C:\Users\Admin\.workbuddy\binaries\python\envs\default\Lib\site-packages\paramiko\buffered_pipe.py", line 154, in read
+    raise PipeTimeout()
+paramiko.buffered_pipe.PipeTimeout
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs\tests\test_wildrig_dl.py", line 25, in <module>
+    print(so.read().decode("utf-8", "replace"))
+          ~~~~~~~^^
+  File "C:\Users\Admin\.workbuddy\binaries\python\envs\default\Lib\site-packages\paramiko\file.py", line 184, in read
+    new_data = self._read(self._DEFAULT_BUFSIZE)
+  File "C:\Users\Admin\.workbuddy\binaries\python\envs\default\Lib\site-packages\paramiko\channel.py", line 1359, in _read
+    return self.channel.recv(size)
+           ~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Users\Admin\.workbuddy\binaries\python\envs\default\Lib\site-packages\paramiko\channel.py", line 699, in recv
+    raise socket.timeout()
+TimeoutError

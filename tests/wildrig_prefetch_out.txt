@@ -1,0 +1,15 @@
+已启动后台下载，开始轮询缓存目录...
+[poll 1] total 113176
+drwxr-xr-x 2 root root     4096 Oct 24 00:40 .
+drwxr-xr-x 4 root root     4096 Oct 24 00:10 ..
+-rw-r--r-- 1 root root 44921458 Oct 23 16:09 bzminer-v100.50.zip
+-rw-r--r-- 1 root root 28383728 Oct 23 09:38 srbminer-3.8.0.zip
+-rw-r--r-- 1 root root 42568192 Oct 24 00:45 wildrig-0.51.7.zip
+---
+[kernel] srbminer 最新版 3.8.0 (SRBMiner-Multi-3-8-0-win64.zip)
+[kernel] bzminer 最新版 v100.50 (bzminer_v100.50_windows.zip)
+[kernel] wildrig 最新版 0.51.7 (wildrig-multi-windows-0.51.7.zip)
+elapsed 0.0s path: /app/data/kernels/wildrig-0.51.7.zip
+err: None
+✅ wildrig 内核缓存已落地
+DONE

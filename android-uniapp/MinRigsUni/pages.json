@@ -1,0 +1,18 @@
+{
+	"pages": [ //pages数组中第一项表示应用启动页，参考：https://uniapp.dcloud.io/collocation/pages
+		{
+			"path": "pages/index/index",
+			"style": {
+				"navigationStyle": "custom",
+				"navigationBarTitleText": "扒皮矿工"
+			}
+		}
+	],
+	"globalStyle": {
+		"navigationBarTextStyle": "black",
+		"navigationBarTitleText": "扒皮矿工",
+		"navigationBarBackgroundColor": "#f4f6fa",
+		"backgroundColor": "#f4f6fa"
+	},
+	"uniIdRouter": {}
+}

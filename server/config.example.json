@@ -1,0 +1,4 @@
+{
+  "admin_token": "adm_change_me_to_a_random_hex",
+  "_comment": "复制为 config.json 使用；admin_token 用于看板登录与 X-Admin-Token 接口鉴权"
+}

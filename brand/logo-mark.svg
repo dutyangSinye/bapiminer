@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="扒皮矿工">
+  <title>扒皮矿工 · 主标</title>
+  <defs>
+    <linearGradient id="bp-rim" x1="40" y1="24" x2="216" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3cc9e8"/>
+      <stop offset="0.55" stop-color="#2fd56b"/>
+      <stop offset="1" stop-color="#1fae5c"/>
+    </linearGradient>
+    <linearGradient id="bp-crystal" x1="70" y1="120" x2="160" y2="215" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17a551"/>
+      <stop offset="0.55" stop-color="#2fd56b"/>
+      <stop offset="1" stop-color="#66f59b"/>
+    </linearGradient>
+    <linearGradient id="bp-open" x1="152" y1="42" x2="212" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#66f59b"/>
+      <stop offset="1" stop-color="#17a551"/>
+    </linearGradient>
+    <linearGradient id="bp-flap" x1="152" y1="60" x2="214" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4d8db4"/>
+      <stop offset="1" stop-color="#82c2e4"/>
+    </linearGradient>
+    <clipPath id="bp-hex">
+      <polygon points="128,31 212,79.5 212,176.5 128,225 44,176.5 44,79.5"/>
+    </clipPath>
+    <clipPath id="bp-rock">
+      <polygon points="57.9,71.4 128,31 212,79.5 212,176.5 193.8,186.9"/>
+    </clipPath>
+    <clipPath id="bp-ore">
+      <polygon points="57.9,71.4 44,79.5 44,176.5 128,225 193.8,186.9"/>
+    </clipPath>
+  </defs>
+
+  <!-- 六边形底盘 -->
+  <polygon points="128,18 223.3,73 223.3,183 128,238 32.7,183 32.7,73" fill="#12151d"/>
+
+  <g clip-path="url(#bp-hex)">
+    <!-- 岩层（左上，含右上角） -->
+    <g clip-path="url(#bp-rock)">
+      <rect width="256" height="256" fill="#262f3d"/>
+      <path d="M52 100 L100 66 M64 134 L128 92 M78 168 L142 126 M94 200 L158 158"
+            stroke="#333e50" stroke-width="6" stroke-linecap="round" fill="none"/>
+    </g>
+
+    <!-- 矿脉（右下） -->
+    <g clip-path="url(#bp-ore)">
+      <rect width="256" height="256" fill="url(#bp-crystal)"/>
+      <path d="M74 104 L120 134 M102 130 L148 160 M130 156 L176 186"
+            stroke="#0a6c36" stroke-width="4.5" stroke-linecap="round" fill="none" opacity=".4"/>
+    </g>
+
+    <!-- 剖切高光 -->
+    <path d="M57.9 71.4 L193.8 186.9" stroke="#2aa4c4" stroke-width="3.4" stroke-linecap="round"/>
+
+    <!-- 掀开的裂口：皮被扒掉，露出里面的矿 -->
+    <polygon points="149.7,43.5 212,79.5 212,151.5" fill="url(#bp-open)"/>
+    <path d="M149.7 43.5 L212 151.5" stroke="#7cf7b4" stroke-width="5" stroke-linecap="round"/>
+  </g>
+
+  <!-- 六边形描边 -->
+  <polygon points="128,18 223.3,73 223.3,183 128,238 32.7,183 32.7,73"
+           fill="none" stroke="url(#bp-rim)" stroke-width="9" stroke-linejoin="round"/>
+
+  <!-- 翘起的皮（翻在裂口外沿，压在描边上方） -->
+  <polygon points="149.7,43.5 212,79.5 202,26" fill="url(#bp-flap)" stroke="#c8efff" stroke-width="2.6" stroke-linejoin="round"/>
+</svg>

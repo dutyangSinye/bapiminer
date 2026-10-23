@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="扒皮矿工">
+  <title>扒皮矿工 · 小尺寸简标（favicon / 托盘）</title>
+  <defs>
+    <linearGradient id="bps-rim" x1="40" y1="24" x2="216" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3cc9e8"/>
+      <stop offset="0.55" stop-color="#2fd56b"/>
+      <stop offset="1" stop-color="#1fae5c"/>
+    </linearGradient>
+    <clipPath id="bps-hex">
+      <polygon points="128,31 212,79.5 212,176.5 128,225 44,176.5 44,79.5"/>
+    </clipPath>
+  </defs>
+
+  <polygon points="128,18 223.3,73 223.3,183 128,238 32.7,183 32.7,73" fill="#1a2029"/>
+
+  <g clip-path="url(#bps-hex)">
+    <!-- 岩层 -->
+    <polygon points="57.9,71.4 128,31 212,79.5 212,176.5 193.8,186.9" fill="#262f3d"/>
+    <!-- 矿脉 -->
+    <polygon points="57.9,71.4 44,79.5 44,176.5 128,225 193.8,186.9" fill="#2fd56b"/>
+    <!-- 剖切线 -->
+    <path d="M57.9 71.4 L193.8 186.9" stroke="#3cc9e8" stroke-width="5" stroke-linecap="round"/>
+    <!-- 裂口 -->
+    <polygon points="149.7,43.5 212,79.5 212,151.5" fill="#3ee47c"/>
+  </g>
+
+  <polygon points="128,18 223.3,73 223.3,183 128,238 32.7,183 32.7,73"
+           fill="none" stroke="url(#bps-rim)" stroke-width="13" stroke-linejoin="round"/>
+
+  <polygon points="149.7,43.5 212,79.5 202,26" fill="#7fb8dc" stroke="#c8efff" stroke-width="3.2" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>扒皮矿工·矿机端</title>
+<link rel="icon" type="image/png" href="bapiminer-64.png">
+<link rel="apple-touch-icon" href="bapiminer-64.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <aside id="side">
+    <div class="brand">
+      <img src="bapiminer-64.png" onerror="this.style.visibility='hidden'">
+      <div><div class="t1">扒皮矿工</div><div class="t2">BAPI MINER</div></div>
+    </div>
+    <div id="nav"></div>
+    <div class="side-ft" id="verTag"></div>
+  </aside>
+
+  <div id="main">
+    <div id="hdr">
+      <div class="ht"><h1 id="pageTitle"></h1><div class="hs" id="pageSub"></div></div>
+      <div class="hr">
+        <span class="pill stop" id="pill">已停止</span>
+        <button class="btn pri big" id="startBtn">开始挖矿</button>
+      </div>
+    </div>
+
+    <div id="tools">
+      <label class="tg" data-tg="autostart"><span class="sw"></span>开机启动</label>
+      <label class="tg" data-tg="autostart_mining"><span class="sw"></span>启动后自动挖矿</label>
+      <label class="tg" data-tg="gamemode"><span class="sw"></span>游戏模式</label>
+    </div>
+
+    <div id="conflictBar">
+      <span class="ex">!</span>
+      <div id="conflictTxt"></div>
+      <div class="btns">
+        <button class="btn pri sm" id="btnKillConflict">关闭这些程序</button>
+        <button class="btn ghost sm" id="btnIgnoreConflict">忽略</button>
+      </div>
+    </div>
+
+    <div id="pages">
+      <!-- 单机挖矿 -->
+      <div class="page on" id="page-mine">
+        <div class="col left">
+          <div class="card">
+            <div class="hashrow">
+              <div>
+                <div class="lbl">总算力</div>
+                <div class="bignum"><span id="ths">0.0</span><small>TH/s</small></div>
+              </div>
+              <div class="minis">
+                <div><div class="lbl">份额 接受 / 拒绝</div><div class="v" id="mAcc">—</div></div>
+                <div><div class="lbl">GPU 温度 / 风扇</div><div class="v amb" id="mGpu">—</div></div>
+                <div><div class="lbl">日收益估算</div><div class="v grn" id="mInc">—</div></div>
+              </div>
+            </div>
+            <div class="hrline"></div>
+            <div class="lbl" style="font-size:12px;color:var(--mut)">显卡</div>
+            <div id="gpuText">未在挖矿 —— 填好钱包地址后点右上「开始挖矿」</div>
+          </div>
+          <div class="card grow">
+            <div class="card-hd">
+              <span class="t">运行日志</span><span class="d">实时输出矿工与内核事件</span>
+              <span class="sp"></span>
+              <button class="btn ghost sm" id="btnClearLog">清空</button>
+            </div>
+            <div id="logBox"></div>
+          </div>
+        </div>
+        <div class="col right">
+          <div class="card">
+            <div class="card-hd"><span class="t">矿机状态</span></div>
+            <div class="kv"><span class="k">钱包</span><span class="v mono" id="rigWallet">未设置</span></div>
+            <div class="kv"><span class="k">运行时长</span><span class="v" id="rigUptime">—</span></div>
+          </div>
+          <div class="card">
+            <div class="card-hd"><span class="t">日收益估算</span><span class="sp"></span>
+              <span class="d">与中控看板同源</span></div>
+            <div><span id="incomeBig">—</span></div>
+            <div id="incomeMeta">等待中控同步收益率…</div>
+            <div class="hrline" style="margin:12px 0"></div>
+            <div class="kv"><span class="k">矿池未支付</span><span class="v" id="walletDisp">—</span></div>
+            <div class="bar"><div id="walletBar"></div></div>
+            <div id="walletNote">绑定钱包后自动同步矿池余额</div>
+          </div>
+          <div class="card">
+            <div class="card-hd"><span class="t">挖矿配置</span><span class="sp"></span>
+              <button class="btn pri sm" id="btnSave">保存设置</button></div>
+            <div class="flabel" style="margin-top:0">挖掘内核</div>
+            <div class="chiprow" id="kchips"></div>
+            <div class="hint" id="khint"></div>
+            <div class="flabel">钱包地址</div>
+            <input class="field mono" id="wallet" spellcheck="false">
+            <div class="flabel">矿池</div>
+            <select class="field" id="brandSel"></select>
+            <div class="nrow" style="margin-top:6px" id="nodeRow">
+              <select class="field" id="nodeSel"></select>
+              <button class="btn ghost sm" id="btnSpeed" style="align-self:center">测速</button>
+            </div>
+            <input class="field mono" id="customPool" spellcheck="false"
+                   style="display:none;margin-top:6px">
+            <div class="hint" id="poolHint"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 游戏模式 -->
+      <div class="page" id="page-game">
+        <div class="col" style="flex:1">
+          <div class="card">
+            <div style="display:flex;align-items:center;gap:12px">
+              <label class="tg" data-tg="gamemode"><span class="sw"></span></label>
+              <div>
+                <div style="font-weight:700;font-size:15px">游戏模式</div>
+                <div style="font-size:12px;color:var(--mut);margin-top:2px">
+                  检测到游戏进程 → 自动停挖让卡；进程消失 → 自动恢复挖矿</div>
+              </div>
+            </div>
+          </div>
+          <div class="card grow">
+            <div class="card-hd"><span class="t">已内置游戏名单（自动检测）</span></div>
+            <div id="presetGames"></div>
+            <div class="hint" style="margin:8px 0 10px">名单内置在程序里，如有遗漏可在下方补充</div>
+            <div class="flabel">自定义游戏进程（逗号分隔，如 xxx.exe, yyy.exe）</div>
+            <input class="field mono" id="games" spellcheck="false">
+          </div>
+        </div>
+      </div>
+
+      <!-- 群控中心 -->
+      <div class="page" id="page-fleet">
+        <div class="col" style="flex:1">
+          <div class="card">
+            <div class="card-hd"><span class="t">中控连接</span>
+              <span class="d">地址已内置，一般无需修改</span></div>
+            <div class="flabel">中控地址</div>
+            <input class="field mono" id="server" spellcheck="false">
+            <div class="flabel">接入口令</div>
+            <input class="field mono" id="token" type="password" spellcheck="false">
+            <div class="flabel">矿机名（看板显示）</div>
+            <input class="field" id="rig_name" spellcheck="false">
+            <div class="flabel">矿工名（矿池显示）</div>
+            <input class="field" id="worker" spellcheck="false">
+            <div style="display:flex;align-items:center;gap:14px;margin-top:16px">
+              <button class="btn pri" id="btnDash">打开中控看板</button>
+              <span class="hint" style="margin:0">
+                矿机上线后自动注册到中控，手机 APK 也能看</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 系统设置 -->
+      <div class="page" id="page-sys">
+        <div class="col" style="flex:1;overflow-y:auto">
+          <div class="card">
+            <div class="card-hd">
+              <div><div class="t">挖矿内核</div>
+                <div class="d" style="margin:2px 0 0">自动从中控下载安装，无需手动准备文件</div></div>
+              <span class="sp"></span>
+              <button class="btn ghost sm" id="btnLatest">检测最新版</button>
+            </div>
+            <div id="kerRows"></div>
+            <div class="flabel" style="margin-top:14px">内核目录</div>
+            <div style="display:flex;gap:8px">
+              <input class="field mono" id="kernel_dir" spellcheck="false">
+              <button class="btn ghost sm" id="btnOpenDir" style="align-self:center">打开目录</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="card-hd"><span class="t">运行选项</span></div>
+            <div style="display:flex;flex-direction:column;gap:12px">
+              <label class="tg" data-tg="autorestart"><span class="sw"></span>矿工崩溃自动拉起</label>
+              <label class="tg" data-tg="check_other_miners">
+                <span class="sw"></span>检测本机其他挖矿程序并提示关闭</label>
+              <label class="tg" data-tg="auto_update">
+                <span class="sw"></span>发现新版本自动升级（重启客户端，中断挖矿约 10 秒）</label>
+            </div>
+            <button class="btn ghost sm" id="btnKerPage" style="margin-top:16px">查看内核官方页</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>

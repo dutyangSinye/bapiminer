@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<style>
+  html,body{margin:0}
+  body{font-family:"Microsoft YaHei",system-ui,sans-serif}
+  .row{display:flex;align-items:flex-end;gap:22px;padding:22px 26px}
+  .dark{background:#12151d}
+  .light{background:#f4f6fa}
+  .cell{display:flex;flex-direction:column;align-items:center;gap:8px}
+  .dark .cap{color:#8b98ad;font-size:11px}
+  .light .cap{color:#6b7788;font-size:11px}
+</style>
+</head>
+<body>
+  <div class="row dark" id="rowDark"></div>
+  <div class="row light" id="rowLight"></div>
+<script>
+  const sizes = [16, 24, 32, 48, 64, 128, 256];
+  for (const [rowId, file] of [['rowDark','logo-mark.svg'], ['rowLight','logo-mark.svg']]) {
+    const row = document.getElementById(rowId);
+    row.innerHTML = sizes.map(s =>
+      `<div class="cell"><img src="${file}?v=${Date.now()}" width="${s}" height="${s}"><span class="cap">${s}</span></div>`
+    ).join('');
+  }
+</script>
+</body>
+</html>

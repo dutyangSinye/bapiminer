@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>挖矿群控 · 中控台</title>
+<style>
+:root{
+  --bg:#f4f6fa;--card:#fff;--line:#e6ebf2;--line-soft:#f0f3f8;
+  --text:#1f2733;--text-2:#4a5568;--muted:#8a95a5;
+  --brand:#3b82f6;--brand-soft:#eaf2ff;
+  --up:#e5484d;--down:#17a673;--gold:#f0a020;--purple:#7c3aed;
+  --shadow:0 1px 2px rgba(20,32,52,.04),0 8px 24px rgba(20,32,52,.06);
+  --radius:14px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--text);
+  font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.5}
+.wrap{max-width:1320px;margin:0 auto;padding:0 20px 64px}
+header{position:sticky;top:0;z-index:50;background:rgba(244,246,250,.86);
+  backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
+.hd{max-width:1320px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px}
+.logo .dot{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#f59e0b,#ef4444);
+  display:grid;place-items:center;color:#fff;font-size:14px;box-shadow:0 2px 8px rgba(239,68,68,.3)}
+.hd .sub{color:var(--muted);font-size:12px;font-weight:400;border-left:1px solid var(--line);padding-left:14px}
+.grow{flex:1}
+.status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);
+  background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 12px}
+.live{width:7px;height:7px;border-radius:50%;background:var(--down);box-shadow:0 0 0 3px rgba(23,166,115,.14)}
+.live.err{background:var(--up);box-shadow:0 0 0 3px rgba(229,72,77,.14)}
+@keyframes pulse{50%{opacity:.35}}
+.live.busy{background:var(--gold);animation:pulse 1s infinite}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;
+  padding:8px 14px;font-size:13px;font-weight:500;cursor:pointer;transition:.15s;font-family:inherit}
+.btn:hover{border-color:#c9d5e8;background:#fbfcfe}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 2px 8px rgba(59,130,246,.25)}
+.btn.primary:hover{background:#2f74e6}
+.btn.mini{padding:5px 10px;font-size:12px;border-radius:8px}
+.btn.danger{color:var(--up);border-color:#f3c6c6}
+.btn.danger:hover{background:#fff5f5;border-color:#e8a5a5}
+
+.hero{padding:24px 0 4px}
+.hero h1{font-size:23px;font-weight:750;letter-spacing:-.4px}
+.hero p{color:var(--muted);font-size:12.5px;margin-top:6px}
+
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0 14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  padding:15px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brand);opacity:.85}
+.kpi.g::after{background:var(--gold)}.kpi.v::after{background:var(--purple)}.kpi.d::after{background:var(--down)}
+.kpi .k{font-size:11.5px;color:var(--muted);font-weight:500}
+.kpi .v{font-size:21px;font-weight:720;margin-top:6px;letter-spacing:-.4px;white-space:nowrap}
+.kpi .v small{font-size:12px;font-weight:500;color:var(--muted);margin-left:4px}
+.kpi .m{font-size:12px;color:var(--text-2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.alerts{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:14px 18px;margin-bottom:14px}
+.alerts h3{font-size:13.5px;font-weight:650;margin-bottom:8px;display:flex;gap:8px;align-items:center}
+.alert-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line-soft);
+  font-size:12.5px;color:var(--text-2);flex-wrap:wrap}
+.alert-row:first-of-type{border-top:none}
+.sev{font-size:10px;font-weight:700;padding:1px 7px;border-radius:5px;letter-spacing:.3px}
+.sev.crit{background:#fdeaea;color:#b91c1c}.sev.warn{background:#fff4e6;color:#b26a00}.sev.info{background:#eef7ff;color:#1d6fd0}
+.alert-row .tm{color:var(--muted);font-size:11.5px}
+.alert-row .sp{flex:1}
+.alert-row button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:2px 9px;
+  font-size:11.5px;cursor:pointer;color:var(--muted);font-family:inherit}
+.alert-row button:hover{color:var(--text);border-color:#c9d5e8}
+
+.rigs{display:grid;grid-template-columns:repeat(auto-fill,minmax(390px,1fr));gap:14px}
+.rig{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:16px 18px;position:relative}
+.rig.offline{opacity:.62}
+.rig-hd{display:flex;align-items:center;gap:9px;margin-bottom:10px}
+.rig-hd .nm{font-weight:700;font-size:15px;letter-spacing:-.2px}
+.rig-hd .dot{width:9px;height:9px;border-radius:50%}
+.rig-hd .dot.on{background:var(--down);box-shadow:0 0 0 3px rgba(23,166,115,.15)}
+.rig-hd .dot.off{background:var(--up);box-shadow:0 0 0 3px rgba(229,72,77,.15)}
+.tag{font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;
+  background:#f1f4f9;color:#8a95a5;border:1px solid #e8edf4}
+.tag.miner{background:#f2f0ff;color:#6d4bd6;border-color:#ddd6fb}
+.tag.miner.dead{background:#fdeaea;color:#b91c1c;border-color:#f8d6d6}
+.rig-hd .sp{flex:1}
+.big{display:flex;align-items:baseline;gap:6px;margin:2px 0 8px}
+.big b{font-size:26px;font-weight:760;letter-spacing:-.6px}
+.big span{color:var(--muted);font-size:12px}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
+.metric{background:#f8fafc;border:1px solid var(--line-soft);border-radius:9px;padding:7px 9px}
+.metric .k{font-size:10px;color:var(--muted)}
+.metric .v{font-size:13.5px;font-weight:650;margin-top:1px;white-space:nowrap}
+.spark{width:100%;height:44px;display:block}
+.gpu-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
+.gpu-chip{font-size:11px;color:var(--text-2);background:#f8fafc;border:1px solid var(--line-soft);
+  border-radius:7px;padding:3px 8px}
+.gpu-chip b{color:var(--text)}
+.gpu-chip.hot b{color:var(--up)}
+.rig-ft{display:flex;align-items:center;gap:8px;margin-top:11px;padding-top:10px;border-top:1px solid var(--line-soft)}
+.rig-ft .info{font-size:11.5px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rig-ft .income{font-size:12.5px;font-weight:650;color:var(--down)}
+.errbar{background:#fff5f5;border:1px solid #ffd9d9;color:#b91c1c;border-radius:10px;
+  padding:9px 14px;font-size:12.5px;margin:14px 0;display:none}
+.empty{padding:48px 20px;text-align:center;color:var(--muted);font-size:13px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:26px;max-width:420px;margin:60px auto}
+.card h2{font-size:16px;margin-bottom:6px}
+.card p{color:var(--muted);font-size:12.5px;margin-bottom:14px}
+.card input{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:13px;
+  outline:none;font-family:inherit;margin-bottom:12px}
+.card input:focus{border-color:#b9d2fb;box-shadow:0 0 0 3px rgba(59,130,246,.1)}
+footer{margin-top:26px;color:var(--muted);font-size:11.5px;line-height:1.9;text-align:center}
+@media(max-width:1080px){.kpis{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:720px){.kpis{grid-template-columns:1fr 1fr}.rigs{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="hd">
+    <div class="logo"><span class="dot">⛏</span>挖矿群控 · 中控台</div>
+    <div class="sub">矿机监控 / 告警 / 远程重启</div>
+    <div class="grow"></div>
+    <div class="status"><span class="live" id="dot"></span><span id="statusText">连接中…</span></div>
+    <button class="btn" id="btnRefresh">↻ 刷新</button>
+  </div>
+</header>
+
+<div class="wrap">
+  <div id="authCard" class="card" style="display:none">
+    <h2>🔒 需要中控口令</h2>
+    <p>输入中控服务 config.json 里的 admin_token，只在本机浏览器记住。</p>
+    <input id="tokenInput" type="password" placeholder="admin_token">
+    <button class="btn primary" style="width:100%" onclick="saveToken()">确认</button>
+  </div>
+
+  <div id="main" style="display:none">
+    <div class="errbar" id="errbar"></div>
+
+    <div class="hero">
+      <h1>矿机状态总览</h1>
+      <p>每台矿机 30 秒上报一次 · 掉线/降算力/高温自动告警 · 远程重启矿工需二次确认</p>
+    </div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="k">🖥 在线矿机</div><div class="v" id="k1">—</div><div class="m" id="k1m">&nbsp;</div></div>
+      <div class="kpi g"><div class="k">⚡ 总算力</div><div class="v" id="k2">—</div><div class="m" id="k2m">&nbsp;</div></div>
+      <div class="kpi v"><div class="k">🔌 总功耗</div><div class="v" id="k3">—</div><div class="m" id="k3m">&nbsp;</div></div>
+      <div class="kpi d"><div class="k">💰 预计日收益</div><div class="v" id="k4">—</div><div class="m" id="k4m">&nbsp;</div></div>
+    </div>
+
+    <div class="alerts" id="alertBox" style="display:none">
+      <h3>🔔 告警 <span class="tag" id="alertCount">0</span></h3>
+      <div id="alertList"></div>
+    </div>
+
+    <div class="rigs" id="rigs"></div>
+    <div class="empty" id="empty" style="display:none">还没有矿机接入 —— 把 agent 目录拷到矿机、改好 config.json 跑起来即可</div>
+  </div>
+</div>
+
+<footer>
+  告警规则：掉线（150 秒无心跳）· 算力较 1 小时均值降 25% · GPU ≥ 83C<br>
+  日收益按 PRL 实时收益率折算（来源：显卡算力性价比榜），含矿池/dev fee 前毛收益
+</footer>
+
+<script>
+const TOKEN_KEY = 'minrigs_admin_token';
+let adminToken = localStorage.getItem(TOKEN_KEY) || '';
+
+/* 支持书签直开：#token=adm_xxx 写入本机后立即清掉 hash，避免留在历史记录里 */
+(function () {
+  const m = location.hash.match(/^#token=(.+)$/);
+  if (m) {
+    adminToken = decodeURIComponent(m[1]);
+    localStorage.setItem(TOKEN_KEY, adminToken);
+    history.replaceState(null, '', location.pathname);
+  }
+})();
+
+const $ = id => document.getElementById(id);
+function num(v, d = 1) {
+  if (v === null || v === undefined || isNaN(v)) return '—';
+  return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
+}
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function fmtUptime(s) {
+  if (!s && s !== 0) return '—';
+  s = Math.floor(s);
+  const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), m = Math.floor(s % 3600 / 60);
+  return d ? `${d}天${h}小时` : (h ? `${h}小时${m}分` : `${m}分钟`);
+}
+function ago(ts) {
+  if (!ts) return '—';
+  const s = Math.floor(Date.now() / 1000 - ts);
+  return s < 60 ? '刚刚' : fmtUptime(s) + '前';
+}
+
+async function api(path, opts) {
+  const h = Object.assign({ 'X-Admin-Token': adminToken }, (opts && opts.headers) || {});
+  const r = await fetch(path, Object.assign({}, opts, { headers: h, cache: 'no-store' }));
+  const d = await r.json();
+  if (r.status === 401) { showAuth(); throw new Error('unauthorized'); }
+  if (!d.ok) throw new Error(d.error || '请求失败');
+  return d;
+}
+
+function showAuth() {
+  $('authCard').style.display = 'block';
+  $('main').style.display = 'none';
+}
+function saveToken() {
+  adminToken = $('tokenInput').value.trim();
+  if (!adminToken) return;
+  localStorage.setItem(TOKEN_KEY, adminToken);
+  $('authCard').style.display = 'none';
+  load();
+}
+
+/* ---------- 渲染 ---------- */
+function sparkline(hist) {
+  const pts = hist.filter(x => x.ths !== null && x.ths !== undefined);
+  if (pts.length < 2) return '<div style="height:44px;display:grid;place-items:center;color:#c2cbd8;font-size:11px">暂无足够曲线数据</div>';
+  const W = 350, H = 44, P = 3;
+  const vals = pts.map(p => p.ths);
+  const mn = Math.min(...vals), mx = Math.max(...vals), rng = (mx - mn) || 1;
+  const X = i => P + i / (pts.length - 1) * (W - 2 * P);
+  const Y = v => P + (1 - (v - mn) / rng) * (H - 2 * P);
+  const line = pts.map((p, i) => `${X(i).toFixed(1)},${Y(p.ths).toFixed(1)}`).join(' ');
+  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:44px">
+    <polyline points="${line}" fill="none" stroke="#3b82f6" stroke-width="1.6" stroke-linejoin="round"/>
+    <circle cx="${X(pts.length - 1).toFixed(1)}" cy="${Y(vals[vals.length - 1]).toFixed(1)}" r="2.4" fill="#3b82f6"/></svg>`;
+}
+
+function rigCard(r) {
+  const s = r.snapshot || {};
+  const on = r.status === 'online';
+  const gpus = s.gpus || [];
+  const miners = s.miners || [];
+  const m0 = miners[0] || {};
+  const mAlive = m0.alive;
+  const pool = (m0.pool || '').replace(/^stratum\+?(tcp|ssl):\/\//, '');
+  const gpuChips = gpus.map(g =>
+    `<span class="gpu-chip ${g.temp >= 80 ? 'hot' : ''}">#${g.index} <b>${num(g.temp, 0)}°C</b> ${num(g.fan, 0)}% · ${num(g.power, 0)}W</span>`
+  ).join('');
+  const rejRate = (s.accepted + s.rejected) ? (s.rejected / (s.accepted + s.rejected) * 100) : 0;
+  return `<div class="rig ${on ? '' : 'offline'}">
+    <div class="rig-hd">
+      <span class="dot ${on ? 'on' : 'off'}"></span>
+      <span class="nm">${esc(r.name)}</span>
+      <span class="tag miner ${mAlive ? '' : 'dead'}">${esc(m0.type || 'miner')} ${mAlive ? '' : '✕ 未响应'}</span>
+      <span class="sp"></span>
+      <button class="btn mini danger" onclick="restart('${esc(r.name)}')">↻ 重启矿工</button>
+    </div>
+    <div class="big"><b>${num(s.ths, 1)}</b><span>TH/s${s.model ? ' · ' + esc(s.model).replace('NVIDIA GeForce ', '') : ''}</span></div>
+    <div class="metrics">
+      <div class="metric"><div class="k">功耗</div><div class="v">${num(s.power, 0)} W</div></div>
+      <div class="metric"><div class="k">温度 / 风扇</div><div class="v">${gpus.length ? num(Math.max(...gpus.map(g => g.temp)), 0) + '°C / ' + num(Math.max(...gpus.map(g => g.fan)), 0) + '%' : '—'}</div></div>
+      <div class="metric"><div class="k">有效 / 拒绝</div><div class="v">${num(s.accepted, 0)} / <span style="color:${rejRate > 5 ? 'var(--up)' : 'inherit'}">${num(s.rejected, 0)}</span></div></div>
+      <div class="metric"><div class="k">连续运行</div><div class="v">${fmtUptime(s.uptime)}</div></div>
+    </div>
+    ${sparkline(r.history || [])}
+    ${gpuChips ? `<div class="gpu-row">${gpuChips}</div>` : ''}
+    <div class="rig-ft">
+      <span class="info">${on ? '心跳 ' + ago(r.last_seen) : '离线 ' + ago(r.last_seen)}${pool ? ' · ' + esc(pool.slice(0, 30)) : ''}${m0.error ? ' · ' + esc(m0.error) : ''}</span>
+      ${s.income_cny_day ? `<span class="income">≈ ¥${num(s.income_cny_day, 0)}/天</span>` : ''}
+    </div>
+  </div>`;
+}
+
+let S = { fleet: null, alerts: [] };
+
+function render() {
+  const f = S.fleet, t = f.total;
+  $('k1').innerHTML = `${t.online}<small>/${f.rigs.length} 台</small>`;
+  $('k1m').textContent = f.rigs.length - t.online ? `${f.rigs.length - t.online} 台离线` : '全部在线';
+  $('k2').innerHTML = `${num(t.ths, 1)}<small>TH/s</small>`;
+  $('k2m').textContent = 'PRL pearlhash 实测';
+  $('k3').innerHTML = `${num(t.power / 1000, 2)}<small>kW</small>`;
+  $('k3m').textContent = 'GPU 板功耗合计';
+  $('k4').innerHTML = t.income ? `¥${num(t.income, 0)}` : '—';
+  $('k4m').textContent = t.income ? '按当前 PRL 收益率估算' : '等待收益数据同步';
+
+  $('rigs').innerHTML = f.rigs.map(rigCard).join('');
+  $('empty').style.display = f.rigs.length ? 'none' : 'block';
+
+  const open = S.alerts.filter(a => !a.resolved);
+  $('alertBox').style.display = S.alerts.length ? 'block' : 'none';
+  $('alertCount').textContent = open.length ? `${open.length} 条未处理` : '无未处理';
+  $('alertList').innerHTML = S.alerts.slice(0, 12).map(a => `
+    <div class="alert-row">
+      <span class="sev ${a.level}">${a.level === 'crit' ? '严重' : a.level === 'warn' ? '警告' : '信息'}</span>
+      <b>${esc(a.rig)}</b> <span>${esc(a.msg)}</span>
+      <span class="sp"></span>
+      <span class="tm">${new Date(a.ts * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+      ${a.resolved ? '<span class="tag">已恢复</span>' : `<button onclick="resolveAlert(${a.id})">标记处理</button>`}
+    </div>`).join('');
+
+  const dot = $('dot');
+  dot.className = 'live';
+  $('statusText').textContent = `更新于 ${f.now.slice(11, 16)}`;
+}
+
+async function load() {
+  try {
+    const [f, a] = await Promise.all([api('/api/fleet'), api('/api/alerts')]);
+    S.fleet = f; S.alerts = a.alerts || [];
+    $('authCard').style.display = 'none';
+    $('main').style.display = 'block';
+    $('errbar').style.display = 'none';
+    render();
+  } catch (e) {
+    if (e.message === 'unauthorized') return;
+    $('errbar').style.display = 'block';
+    $('errbar').textContent = '加载失败：' + e.message;
+  }
+}
+
+async function restart(rig) {
+  if (!confirm(`确定远程重启「${rig}」的矿工进程？\n将强杀矿工并按 start 脚本重新拉起，约 1 分钟恢复。`)) return;
+  try {
+    await api('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rig, cmd: 'restart_miner' }) });
+    alert('命令已下发，矿机 agent 将在下一个轮询周期执行（≤30 秒）。');
+  } catch (e) { alert('下发失败：' + e.message); }
+}
+async function resolveAlert(id) {
+  try { await api('/api/alerts/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }) }); load(); } catch (e) { }
+}
+$('btnRefresh').onclick = load;
+
+if (adminToken) load(); else showAuth();
+setInterval(() => { if (adminToken && S.fleet) load(); }, 15000);
+</script>
+</body>
+</html>

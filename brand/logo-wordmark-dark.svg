@@ -1,0 +1,66 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 200" width="720" height="200" role="img" aria-label="扒皮矿工 BaPi Miner">
+  <title>扒皮矿工 · 横版字标（深底）</title>
+  <defs>
+    <linearGradient id="bpw-rim" x1="40" y1="24" x2="216" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3cc9e8"/>
+      <stop offset="0.55" stop-color="#2fd56b"/>
+      <stop offset="1" stop-color="#1fae5c"/>
+    </linearGradient>
+    <linearGradient id="bpw-crystal" x1="70" y1="120" x2="160" y2="215" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#17a551"/>
+      <stop offset="0.55" stop-color="#2fd56b"/>
+      <stop offset="1" stop-color="#66f59b"/>
+    </linearGradient>
+    <linearGradient id="bpw-open" x1="152" y1="42" x2="212" y2="150" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#66f59b"/>
+      <stop offset="1" stop-color="#17a551"/>
+    </linearGradient>
+    <linearGradient id="bpw-flap" x1="152" y1="60" x2="214" y2="24" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#4d8db4"/>
+      <stop offset="1" stop-color="#82c2e4"/>
+    </linearGradient>
+    <clipPath id="bpw-hex">
+      <polygon points="128,31 212,79.5 212,176.5 128,225 44,176.5 44,79.5"/>
+    </clipPath>
+    <clipPath id="bpw-rock">
+      <polygon points="57.9,71.4 128,31 212,79.5 212,176.5 193.8,186.9"/>
+    </clipPath>
+    <clipPath id="bpw-ore">
+      <polygon points="57.9,71.4 44,79.5 44,176.5 128,225 193.8,186.9"/>
+    </clipPath>
+  </defs>
+
+  <rect width="720" height="200" fill="#12151d"/>
+
+  <!-- 徽章（复用主标 256 坐标，整体缩放平移） -->
+  <g transform="translate(16,12) scale(0.72)">
+    <polygon points="128,18 223.3,73 223.3,183 128,238 32.7,183 32.7,73" fill="#12151d"/>
+    <g clip-path="url(#bpw-hex)">
+      <g clip-path="url(#bpw-rock)">
+        <rect width="256" height="256" fill="#262f3d"/>
+        <path d="M52 100 L100 66 M64 134 L128 92 M78 168 L142 126 M94 200 L158 158"
+              stroke="#333e50" stroke-width="6" stroke-linecap="round" fill="none"/>
+      </g>
+      <g clip-path="url(#bpw-ore)">
+        <rect width="256" height="256" fill="url(#bpw-crystal)"/>
+        <path d="M74 104 L120 134 M102 130 L148 160 M130 156 L176 186"
+              stroke="#0a6c36" stroke-width="4.5" stroke-linecap="round" fill="none" opacity=".4"/>
+      </g>
+      <path d="M57.9 71.4 L193.8 186.9" stroke="#2aa4c4" stroke-width="3.4" stroke-linecap="round"/>
+      <polygon points="149.7,43.5 212,79.5 212,151.5" fill="url(#bpw-open)"/>
+      <path d="M149.7 43.5 L212 151.5" stroke="#7cf7b4" stroke-width="5" stroke-linecap="round"/>
+    </g>
+    <polygon points="128,18 223.3,73 223.3,183 128,238 32.7,183 32.7,73"
+             fill="none" stroke="url(#bpw-rim)" stroke-width="9" stroke-linejoin="round"/>
+    <polygon points="149.7,43.5 212,79.5 202,26" fill="url(#bpw-flap)" stroke="#c8efff" stroke-width="2.6" stroke-linejoin="round"/>
+  </g>
+
+  <!-- 字标 -->
+  <text x="212" y="106" font-family="'Microsoft YaHei','PingFang SC','Noto Sans SC',sans-serif"
+        font-size="80" font-weight="800" fill="#eef4fb" letter-spacing="3">扒皮矿工</text>
+  <text x="216" y="156" font-family="'Segoe UI','Microsoft YaHei',sans-serif"
+        font-size="25" font-weight="700" fill="#5fb98a" letter-spacing="6">BAPI MINER</text>
+  <rect x="452" y="136" width="1.5" height="24" fill="#2a3441"/>
+  <text x="470" y="156" font-family="'Microsoft YaHei',sans-serif"
+        font-size="21" font-weight="400" fill="#8b98ad" letter-spacing="2">挖矿群控系统</text>
+</svg>

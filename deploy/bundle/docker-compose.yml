@@ -1,0 +1,15 @@
+# MinRigs 挖矿群控中控 · NAS Docker 留档
+# 升级: 上传新 server.py 后 docker compose build && docker compose up -d
+# 改口令: 编辑 config.json 的 admin_token 后 docker restart minrigs
+# 改端口: 改 ports 映射即可（容器内固定 8099）
+services:
+  minrigs:
+    build: .
+    image: minrigs-server:1.0
+    container_name: minrigs
+    restart: always
+    ports:
+      - "8099:8099"
+    volumes:
+      - ./data:/app/data
+      - ./config.json:/app/config.json

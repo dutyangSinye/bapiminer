@@ -1,0 +1,1583 @@
+# -*- coding: utf-8 -*-
+"""
+挖矿群控 · 中控服务（纯标准库，零依赖）
+
+用法:
+    python server.py                          # 默认端口 8099
+    PORT=8099 python server.py
+首次启动自动生成 server/config.json（含 admin_token），控制台会打印。
+
+矿机侧接口（Agent 调用，需 header X-Rig-Token 与 rigs 表一致）:
+    POST /api/report        上报一次快照
+    GET  /api/poll?name=    拉取待执行命令（并标记 sent）
+    POST /api/cmd_result    命令执行回执 {rig, id, ok, result}
+
+看板接口（需 header X-Admin-Token，看板页会引导输入一次）:
+    GET  /api/fleet                 全群聚合
+    GET  /api/history?rig=&hours=   单机时序
+    GET  /api/daily?days=30         按天收益估算（按矿池分组）
+    GET  /api/kernels               挖矿内核版本/缓存
+    GET  /api/pools                 矿池目录（品牌/节点/区域，供看板「更换矿池」选择）
+    POST /api/kernel/check          立即检查内核最新版本
+    POST /api/command               下发命令 {rig, cmd, arg}（rig 可为 "*" 广播全部）
+                                    cmd: restart_miner|start_miner|stop_miner|
+                                         gamemode_on|gamemode_off|update_kernel|update_client|
+                                         set_pool|set_kernel
+                                    set_pool   arg {"pool_url":"stratum+tcp://主机:端口"}
+                                    set_kernel arg {"kernel":"SRBMiner-MULTI|BzMiner|WildRig"}
+    GET  /api/alerts                告警列表
+    POST /api/alerts/resolve        {id} 手动关闭
+矿机端下载（需 X-Rig-Token）:
+    GET  /api/kernel_dl?kernel=srbminer|bzminer   从中控缓存下载内核 zip（多镜像代下）
+
+客户端安装包分发（放在 data/downloads/ 即可）:
+    GET  /api/downloads                           安装包清单（大小/时间/sha256）
+    GET  /download/<文件名>                        下载矿机端 exe / 安卓 apk（支持 Range 续传）
+
+数据: data/fleet.db (SQLite, WAL)；samples 保留 7 天。
+告警: 矿机掉线 / 算力骤降(对比 1 小时均值 -25%) / GPU 高温(默认 83C)。
+收益: 每 10 分钟从性价比榜服务拉 PRL 实时收益率(USDT/TH/s/天)折算。
+"""
+
+import hashlib
+import json
+import os
+import re
+import sqlite3
+import threading
+import time
+import traceback
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs, unquote, quote
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+DATA_DIR = os.path.join(BASE_DIR, "data")
+DB_FILE = os.path.join(DATA_DIR, "fleet.db")
+CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
+
+PORT = int(os.environ.get("PORT", "8099"))
+OFFLINE_SEC = int(os.environ.get("OFFLINE_SEC", "150"))
+SAMPLE_KEEP_DAYS = 7
+TEMP_WARN_C = float(os.environ.get("TEMP_WARN", "83"))
+HASHRATE_DROP_PCT = 25.0          # 相对 1 小时均值降幅告警阈值
+HASHRATE_ALERT_COOLDOWN = 3600    # 同机同因告警冷却
+INCOME_SRC = os.environ.get(
+    "INCOME_SRC", "https://www.vminers.com/gpu-hashrate/")
+
+_db_lock = threading.Lock()
+_admin_token = ""
+_rate_lock = threading.Lock()
+_rate_map = {}          # 型号 -> USDT/TH/s/天（来自 vminers PRL 实测榜）
+_rate_meta = {}         # 型号 -> {ths, prl_day, usdt_day, power_w}
+_rate_meta_lc = {}      # 小写型号 -> 原始键（大小写不敏感匹配）
+_rate_avg = 0.0         # 全表加权均价 USDT/TH/s/天（Σusdt/Σths），收益按总算力计算
+_cny_rate = 6.67        # USDT->CNY 实时汇率（动态拉取，失败时兜底）
+_rate_ts = 0.0
+
+# ---------------------------------------------------------------- 配置
+
+
+def _load_config():
+    global _admin_token
+    os.makedirs(DATA_DIR, exist_ok=True)
+    cfg = {}
+    if os.path.isfile(CONFIG_FILE):
+        try:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
+                cfg = json.load(f)
+        except Exception as e:  # noqa: BLE001
+            print("[config] 读取失败: %s" % e)
+    _admin_token = str(cfg.get("admin_token") or "")
+    if not _admin_token:
+        import secrets
+        _admin_token = "adm_" + secrets.token_hex(8)
+        cfg["admin_token"] = _admin_token
+        cfg.setdefault("port", PORT)
+        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        print("[config] 已生成 %s  admin_token=%s" % (CONFIG_FILE, _admin_token))
+
+
+# ---------------------------------------------------------------- 数据库
+
+def _conn():
+    c = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=15)
+    c.row_factory = sqlite3.Row
+    return c
+
+_conn_local = threading.local()
+
+
+def db():
+    c = getattr(_conn_local, "c", None)
+    if c is None:
+        c = _conn()
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("PRAGMA busy_timeout=8000")
+        _conn_local.c = c
+    return c
+
+
+def init_db():
+    c = db()
+    c.executescript("""
+CREATE TABLE IF NOT EXISTS rigs(
+  name TEXT PRIMARY KEY,
+  token TEXT NOT NULL,
+  first_seen REAL, last_seen REAL,
+  last_report TEXT,
+  status TEXT DEFAULT 'offline',
+  offline_since REAL,
+  wallet TEXT DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS samples(
+  rig TEXT NOT NULL, ts REAL NOT NULL,
+  ths REAL, power REAL, temp REAL, fan REAL,
+  accepted INTEGER, rejected INTEGER, uptime INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_samples ON samples(rig, ts);
+CREATE TABLE IF NOT EXISTS commands(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  rig TEXT NOT NULL, cmd TEXT NOT NULL, arg TEXT,
+  status TEXT DEFAULT 'pending',
+  created REAL, picked REAL, finished REAL, result TEXT
+);
+CREATE TABLE IF NOT EXISTS alerts(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts REAL, rig TEXT, level TEXT, kind TEXT, msg TEXT,
+  resolved INTEGER DEFAULT 0, resolved_ts REAL
+);
+""")
+    c.commit()
+    # 游戏模式标记（网吧式让卡），老库自动补列
+    try:
+        c.execute("ALTER TABLE rigs ADD COLUMN game_mode INTEGER DEFAULT 0")
+        c.commit()
+        print("[db] rigs 表新增 game_mode 列")
+    except Exception:  # noqa: BLE001
+        pass  # 列已存在
+    # 采样加矿池字段（按矿池统计收益）
+    try:
+        c.execute("ALTER TABLE samples ADD COLUMN pool TEXT DEFAULT ''")
+        c.commit()
+        print("[db] samples 表新增 pool 列")
+    except Exception:  # noqa: BLE001
+        pass  # 列已存在
+    # 钱包地址（矿池真实收益）
+    try:
+        c.execute("ALTER TABLE rigs ADD COLUMN wallet TEXT DEFAULT ''")
+        c.commit()
+        print("[db] rigs 表新增 wallet 列")
+    except Exception:  # noqa: BLE001
+        pass  # 列已存在
+    # 矿机端软件版本（客户端上报 client_version）
+    try:
+        c.execute("ALTER TABLE rigs ADD COLUMN client_version TEXT DEFAULT ''")
+        c.commit()
+        print("[db] rigs 表新增 client_version 列")
+    except Exception:  # noqa: BLE001
+        pass
+    # 当前矿池地址（客户端上报 pool_url，看板展示与「更换矿池」对照）
+    try:
+        c.execute("ALTER TABLE rigs ADD COLUMN pool_url TEXT DEFAULT ''")
+        c.commit()
+        print("[db] rigs 表新增 pool_url 列")
+    except Exception:  # noqa: BLE001
+        pass  # 列已存在
+
+
+# ---------------------------------------------------------------- 工具
+
+def now_cn():
+    tz = timezone(timedelta(hours=8))
+    return datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def add_alert(rig, level, kind, msg):
+    c = db()
+    row = c.execute(
+        "SELECT id FROM alerts WHERE rig=? AND kind=? AND resolved=0", (rig, kind)
+    ).fetchone()
+    if row:
+        return
+    c.execute("INSERT INTO alerts(ts,rig,level,kind,msg) VALUES(?,?,?,?,?)",
+              (time.time(), rig, level, kind, msg))
+    c.commit()
+    print("[alert] %s [%s] %s: %s" % (now_cn(), level, rig, msg))
+
+
+def resolve_alert(rig, kind):
+    c = db()
+    c.execute(
+        "UPDATE alerts SET resolved=1, resolved_ts=? WHERE rig=? AND kind=? AND resolved=0",
+        (time.time(), rig, kind))
+    c.commit()
+
+
+def rig_avg_ths(rig, window_sec):
+    c = db()
+    row = c.execute(
+        "SELECT AVG(ths) a FROM samples WHERE rig=? AND ts>? AND ths>0",
+        (rig, time.time() - window_sec)).fetchone()
+    return row["a"] or 0.0
+
+
+# ---------------------------------------------------------------- 收益率
+
+def rate_fetch_loop():
+    global _rate_map, _rate_ts, _rate_meta, _rate_meta_lc, _rate_avg
+    while True:
+        try:
+            req = urllib.request.Request(
+                INCOME_SRC,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) bapiminer/1.0"})
+            with urllib.request.urlopen(req, timeout=30) as r:
+                html = r.read().decode("utf-8", "replace")
+            m, meta = {}, {}
+            for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
+                cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)
+                if len(cells) < 4:
+                    continue
+                name = re.sub(r"<small>.*?</small>", "", cells[0], flags=re.S)
+                name = re.sub(r"<[^>]+>", "", name).strip()
+                ths = _cell_num(cells[1], r"([\d.]+)\s*TH/s")
+                prl = _cell_num(cells[2], r"([\d.]+)\s*PRL/day")
+                usdt = _cell_num(cells[3], r"([\d.]+)\s*USDT")
+                pw = _cell_num(cells[4], r"([\d.]+)\s*W") if len(cells) > 4 else None
+                if name and ths and usdt:
+                    m[name] = usdt / ths
+                    meta[name] = {"ths": ths, "prl_day": prl, "usdt_day": usdt, "power_w": pw}
+            if m:
+                tot_ths = sum(v["ths"] for v in meta.values())
+                tot_usdt = sum(v["usdt_day"] for v in meta.values())
+                with _rate_lock:
+                    _rate_map = m
+                    _rate_meta = meta
+                    _rate_meta_lc = {k.lower(): k for k in m}
+                    _rate_avg = tot_usdt / tot_ths if tot_ths else 0.0
+                    _rate_ts = time.time()
+                print("[rate] vminers 收益率更新：%d 个型号，均价 %.4f USDT/TH/s/天"
+                      % (len(m), _rate_avg), flush=True)
+        except Exception as e:  # noqa: BLE001
+            print("[rate] 拉取失败: %s" % e, flush=True)
+        _fetch_cny_rate()
+        time.sleep(600)
+
+
+def _fetch_cny_rate():
+    """动态拉取 USDT->CNY 汇率；全部失败时沿用旧值。"""
+    global _cny_rate
+    sources = [
+        # 社区货币 API（含 USDT 兑 CNY）
+        ("https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@latest/v1/currencies/usdt.json",
+         lambda d: d.get("usdt", {}).get("cny")),
+        # 兜底：USD 官方汇率近似 USDT
+        ("https://open.er-api.com/v6/latest/USD",
+         lambda d: (d.get("rates") or {}).get("CNY")),
+    ]
+    for url, pick in sources:
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "bapiminer/1.0"})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                val = pick(json.loads(r.read().decode("utf-8")))
+            if val and 4.0 < float(val) < 10.0:
+                with _rate_lock:
+                    globals()["_cny_rate"] = round(float(val), 4)
+                print("[rate] USDT/CNY 汇率更新：%.4f" % _cny_rate, flush=True)
+                return
+        except Exception:  # noqa: BLE001
+            continue
+    print("[rate] 汇率拉取失败，沿用 %.4f" % _cny_rate, flush=True)
+
+
+def rate_cny():
+    with _rate_lock:
+        return _cny_rate
+
+
+def _cell_num(cell, pattern):
+    mt = re.search(pattern, cell)
+    return float(mt.group(1)) if mt else None
+
+
+def _norm_model(model):
+    """统一显卡型号写法，便于与 vminers 收益率表比对。"""
+    s = (model or "").strip()
+    for p in ("NVIDIA GeForce ", "NVIDIA ", "AMD Radeon ", "AMD ", "Intel Arc ", "Intel "):
+        if s.startswith(p):
+            s = s[len(p):].strip()
+            break
+    # 笔记本卡写法归一：RTX 5080 Laptop GPU -> RTX 5080 Laptop（vminers 独立条目）
+    if s.endswith(" Laptop GPU"):
+        s = s[: -len(" GPU")]
+    return s
+
+
+def _rate_key(model):
+    """型号 -> 收益率表键（精确/小写/后缀变体/词边界前缀）。未命中返回 None。"""
+    s = _norm_model(model)
+    with _rate_lock:
+        if not _rate_map or not s:
+            return None
+        for cand in (s, (model or "").strip()):  # 规范名 + 原始名（AMD 全名条目）
+            if cand in _rate_map:
+                return cand
+            lc = _rate_meta_lc.get(cand.lower())
+            if lc:
+                return lc
+        # 笔记本卡降级到桌面卡：RTX 5080 Laptop -> RTX 5080
+        for suf in (" Laptop", " (Laptop)", " GPU"):
+            base = s[: -len(suf)].strip()
+            if s.endswith(suf) and base in _rate_map:
+                return base
+        # 词边界前缀兜底（长键优先，避免 RTX 5090 误吞 RTX 5090 D）
+        for k in sorted(_rate_map, key=len, reverse=True):
+            if s.startswith(k + " "):
+                return k
+    return None
+
+
+def rate_for(model):
+    k = _rate_key(model)
+    if k:
+        with _rate_lock:
+            return _rate_map[k]
+    return None
+
+
+def rate_avg():
+    """vminers 全表加权均价 USDT/TH/s/天（收益计算用，与显卡型号无关）。"""
+    with _rate_lock:
+        return _rate_avg
+
+
+def rate_meta_for(model):
+    k = _rate_key(model)
+    if k:
+        with _rate_lock:
+            return dict(_rate_meta.get(k) or {}, ref_model=k)
+    return None
+
+
+# ---------------------------------------------------------------- 矿池钱包
+# 未支付余额：矿池 API（实时）
+#   Kryptex：GET /{coin}/api/v1/miner/balance/{wallet}（prl.kryptex.network 子域即币种代码）
+# 真实收入（今日实际收入/实收/近7日/近30日/按天明细）：链上交易，Pearl 浏览器 API
+#   GET https://api.prlscan.com/v1/addresses/{wallet}/txs?limit=100[&cursor=...]
+#   -> [{time:"2026-10-23T11:02:01Z", received_grains, sent_grains, type_label}]
+#   1 PRL = 1e8 grains；收到即计入（type_label 为 *payout 的池打款 + 其它转入）。
+# 为什么不用 pool.kryptex.com 的 payouts / reward-chart：该池 2026-10-20 迁移后
+# 这两个接口停止更新（payouts 最后一笔停在 10-20 10:19 UTC，reward-chart 10-21 起
+# 恒为 0），而矿机一直全速在挖、链上每 ~4 小时准时打款。以链口为准，与钱包页面
+# （prlscan.com）看到的数字一致；balance 接口仍然实时，继续用于「矿池未支付」。
+
+_wallet_lock = threading.Lock()
+_wallet_map = {}   # rig -> {coin, wallet, total, confirmed, unconfirmed, threshold, pct, last_active, ts}
+_wallet_ts = 0.0
+
+
+def pool_coin(pool_url):
+    """从矿池地址推断币种代码：prl.kryptex.network:7048 / prl-hk.kryptex.network:7048 -> prl
+    （区属后缀 -hk/-eu 等不是币种，pool.kryptex.com 只认纯币种代码，带后缀会 502）"""
+    host = (pool_url or "").replace("stratum+tcp://", "").replace("stratum+ssl://", "")
+    host = host.split("/")[0].split(":")[0].lower()
+    if host.endswith("kryptex.network") or host.endswith("kryptex.com"):
+        return host.split(".")[0].split("-")[0]
+    return ""
+
+
+def wallet_fetch_one(coin, wallet):
+    url = "https://pool.kryptex.com/%s/api/v1/miner/balance/%s" % (coin, quote(wallet.strip()))
+    req = urllib.request.Request(url, headers={"User-Agent": "bapiminer/1.0"})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        d = json.loads(r.read().decode("utf-8"))
+    return {
+        "coin": coin,
+        "total": round(float(d.get("total") or 0), 6),
+        "confirmed": round(float(d.get("confirmed") or 0), 6),
+        "unconfirmed": round(float(d.get("unconfirmed") or 0), 6),
+        "threshold": float(d.get("threshold") or 0),
+        "pct": float(d.get("reached_pct") or 0),
+        "last_active": d.get("last_active") or 0,
+        "ts": time.time(),
+    }
+
+
+def _rig_coin(row):
+    """按矿机最近上报的矿池推断币种，推断不出默认 prl。"""
+    try:
+        if row["last_report"]:
+            snap = json.loads(row["last_report"]) or {}
+            miners = snap.get("miners") or []
+            c = pool_coin((miners[0].get("pool") if miners else "") or "")
+            if c:
+                return c
+    except Exception:  # noqa: BLE001
+        pass
+    return "prl"
+
+
+_EXPLORER_API = {"prl": "https://api.prlscan.com"}  # 币种 -> 链上浏览器 API 基址
+
+
+def wallet_chain_txs(coin, wallet, pages=3):
+    """钱包链上交易（时间倒序，最多 pages*100 条，覆盖 30 天足够）。
+
+    浏览器 API 单页上限 100 条，带 next_cursor 翻页。
+    """
+    base = _EXPLORER_API.get((coin or "").lower(), "https://api.prlscan.com")
+    items, cursor = [], ""
+    for _ in range(max(1, pages)):
+        url = "%s/v1/addresses/%s/txs?limit=100" % (base, quote(wallet.strip()))
+        if cursor:
+            url += "&cursor=" + quote(cursor)
+        req = urllib.request.Request(url, headers={"User-Agent": "bapiminer/1.0",
+                                                   "Accept": "application/json"})
+        with urllib.request.urlopen(req, timeout=25) as r:
+            d = json.loads(r.read().decode("utf-8"))
+        batch = (d.get("items") or []) if isinstance(d, dict) else []
+        items.extend(batch)
+        cursor = (d.get("next_cursor") or "") if isinstance(d, dict) else ""
+        if not cursor or not batch:
+            break
+    return items
+
+
+def chain_income_stats(txs):
+    """链上交易 -> 收入统计（按北京时间归集，收到即计入）。
+
+    返回 {total, h24, today, yesterday, d7, d30, count, days}：
+    today 即看板「今日实际收入」（钱包今天实际收到的币数，含矿池打款）；
+    yesterday/d7/d30 同口径；days 为 {北京日期: 金额}，供按天明细使用。
+    """
+    now = time.time()
+    TZ8 = 8 * 3600
+    today0 = int((now + TZ8) // 86400) * 86400 - TZ8  # 北京时间当天零点
+    y0 = today0 - 86400
+    stats = {"total": 0.0, "h24": 0.0, "today": 0.0, "yesterday": 0.0,
+             "d7": 0.0, "d30": 0.0, "count": 0, "days": {}}
+    for t in txs or []:
+        try:
+            amt = float(t.get("received_grains") or 0) / 1e8
+            dt = datetime.strptime((t.get("time") or "")[:19], "%Y-%m-%dT%H:%M:%S")
+            ts = dt.replace(tzinfo=timezone.utc).timestamp()
+        except (TypeError, ValueError, AttributeError):
+            continue
+        if amt <= 0 or ts <= 0:
+            continue
+        stats["count"] += 1
+        stats["total"] += amt
+        if ts > now - 86400:
+            stats["h24"] += amt
+        if ts >= today0:
+            stats["today"] += amt
+        if y0 <= ts < today0:
+            stats["yesterday"] += amt
+        if ts > now - 7 * 86400:
+            stats["d7"] += amt
+        if ts > now - 30 * 86400:
+            stats["d30"] += amt
+        day = time.strftime("%Y-%m-%d", time.gmtime(ts + TZ8))
+        stats["days"][day] = stats["days"].get(day, 0.0) + amt
+    # 累计过程不做四舍五入（每步 round 会累积误差），返回前统一取 6 位
+    for k in ("total", "h24", "today", "yesterday", "d7", "d30"):
+        stats[k] = round(stats[k], 6)
+    stats["days"] = {d: round(v, 6) for d, v in stats["days"].items()}
+    return stats
+
+
+def wallet_loop():
+    global _wallet_map, _wallet_ts
+    while True:
+        try:
+            rows = db().execute(
+                "SELECT name, wallet, last_report FROM rigs "
+                "WHERE wallet IS NOT NULL AND wallet != ''").fetchall()
+            # 同一钱包可能被多台矿机共用：按 (币种,钱包) 只拉一次，再分发给各矿机
+            uniq = {}
+            for r in rows:
+                coin = _rig_coin(r)
+                uniq.setdefault((coin, r["wallet"].strip()), []).append(r["name"])
+            got = {}
+            for (coin, wallet), names in uniq.items():
+                try:
+                    w = wallet_fetch_one(coin, wallet)
+                    w["wallet"] = wallet
+                    try:
+                        inc = chain_income_stats(wallet_chain_txs(coin, wallet))
+                        w["paid"] = inc
+                        w["rewards"] = {k: inc[k] for k in
+                                        ("today", "yesterday", "d7", "d30", "days")}
+                    except Exception as e:  # noqa: BLE001
+                        print("[wallet] %s 链上交易拉取失败: %s" % (wallet[:12], e), flush=True)
+                    for n in names:
+                        got[n] = dict(w)
+                except Exception as e:  # noqa: BLE001
+                    print("[wallet] %s 拉取失败: %s" % (wallet[:12], e), flush=True)
+            if got:
+                with _wallet_lock:
+                    _wallet_map = got
+                    _wallet_ts = time.time()
+                print("[wallet] 钱包余额更新：%d 台" % len(got), flush=True)
+        except Exception as e:  # noqa: BLE001
+            print("[wallet] 循环异常: %s" % e, flush=True)
+        time.sleep(300)
+
+
+def wallet_for(rig):
+    with _wallet_lock:
+        v = _wallet_map.get(rig)
+        return dict(v) if v else None
+
+
+def unique_wallets():
+    """_wallet_map 快照按 (币种,钱包) 去重：同一钱包可能被多台矿机共用
+    （各自上报同一地址），聚合余额/打款/收益时必须去重，否则按矿机台数翻倍。"""
+    with _wallet_lock:
+        seen, out = set(), []
+        for v in _wallet_map.values():
+            wk = ((v.get("coin") or ""), (v.get("wallet") or "").strip())
+            if not wk[1] or wk in seen:
+                continue
+            seen.add(wk)
+            out.append(v)
+        return out
+
+
+def wallet_set(rig, wallet):
+    """看板手工绑定钱包（客户端上报也会写同列）。立即拉一次余额。"""
+    wallet = (wallet or "").strip()
+    c = db()
+    row = c.execute("SELECT name FROM rigs WHERE name=?", (rig,)).fetchone()
+    if row is None:
+        return {"ok": False, "error": "矿机不存在：%s" % rig}
+    with _db_lock:
+        c.execute("UPDATE rigs SET wallet=? WHERE name=?", (wallet, rig))
+        c.commit()
+    out = {"ok": True, "rig": rig, "wallet": wallet}
+    if wallet:
+        try:
+            r = c.execute("SELECT last_report FROM rigs WHERE name=?", (rig,)).fetchone()
+            coin = _rig_coin(r)
+            w = wallet_fetch_one(coin, wallet)
+            w["wallet"] = wallet
+            try:
+                inc = chain_income_stats(wallet_chain_txs(coin, wallet))
+                w["paid"] = inc
+                w["rewards"] = {k: inc[k] for k in
+                                ("today", "yesterday", "d7", "d30", "days")}
+            except Exception as e:  # noqa: BLE001
+                print("[wallet] %s 链上交易拉取失败: %s" % (rig, e), flush=True)
+            with _wallet_lock:
+                _wallet_map[rig] = w
+                globals()["_wallet_ts"] = time.time()
+            out["balance"] = w
+        except Exception as e:  # noqa: BLE001
+            out["fetch_error"] = str(e)
+    return out
+
+
+# ---------------------------------------------------------------- 上报处理
+
+def rig_auth_check(name, tk, source=""):
+    """矿机接入码校验。返回 None 表示通过。
+
+    口令为空（管理员执行过『重置接入码』）时，允许第一个来报到的客户端
+    用自己的口令重新绑定，解决重装/更换目录后 401 的问题。
+    """
+    if not name or not tk:
+        return "auth failed"
+    c = db()
+    row = c.execute("SELECT token FROM rigs WHERE name=?", (name,)).fetchone()
+    if row is None:
+        return "auth failed"
+    stored = row["token"] or ""
+    if stored and stored != tk:
+        return "token mismatch"
+    if not stored:
+        with _db_lock:
+            c.execute("UPDATE rigs SET token=?, last_seen=? WHERE name=?",
+                      (tk, time.time(), name))
+            c.commit()
+        add_alert(name, "info", "rig_rebind", "矿机 %s 已重新绑定接入码（%s）" % (name, source or "认领"))
+        print("[rig] 重新绑定接入码：%s（%s）" % (name, source or "认领"))
+    return None
+
+
+def handle_report(payload):
+    name = str(payload.get("name") or "").strip()
+    token = str(payload.get("token") or "").strip()
+    if not name or not token:
+        return {"ok": False, "error": "缺少 name/token"}
+    c = db()
+    row = c.execute("SELECT token, game_mode FROM rigs WHERE name=?", (name,)).fetchone()
+    if row is None:
+        c.execute("INSERT INTO rigs(name,token,first_seen,last_seen,status,wallet) VALUES(?,?,?,?,?,?)",
+                  (name, token, time.time(), time.time(), "online",
+                   str(payload.get("wallet") or "").strip()))
+        c.commit()
+        add_alert(name, "info", "rig_new", "新矿机接入：%s" % name)
+        print("[rig] 新矿机注册：%s" % name)
+    elif row["token"] and row["token"] != token:
+        return {"ok": False, "error": "token mismatch（本机接入码与中控登记不一致，"
+                                      "请在中控该矿机卡片点『重置接入码』后重试）"}
+    elif not row["token"]:
+        with _db_lock:
+            c.execute("UPDATE rigs SET token=? WHERE name=?", (token, name))
+            c.commit()
+        add_alert(name, "info", "rig_rebind", "矿机 %s 已重新绑定接入码（上报认领）" % name)
+        print("[rig] 重新绑定接入码：%s（上报认领）" % name)
+    old_gm = int((row["game_mode"] if row is not None else 0) or 0)
+    gm = 1 if payload.get("game_mode") else 0
+
+    gpus = payload.get("gpus") or []
+    miners = payload.get("miners") or []
+    ths = 0.0
+    accepted = rejected = 0
+    uptime = None
+    for m in miners:
+        ths += float(m.get("ths") or 0)
+        accepted += int(m.get("accepted") or 0)
+        rejected += int(m.get("rejected") or 0)
+        if m.get("uptime"):
+            uptime = m["uptime"]
+    power = sum(float(g.get("power") or 0) for g in gpus)
+    temp = max([float(g.get("temp") or 0) for g in gpus], default=0)
+    fan = max([float(g.get("fan") or 0) for g in gpus], default=0)
+
+    model = (gpus[0].get("model") if gpus else "") or ""
+    # 收益 = 总算力 × vminers 全表均价(USDT/TH/s/天) × 实时汇率（型号仅做参考展示，不参与计算）
+    income = None
+    avg = rate_avg()
+    if avg:
+        income = round(ths * avg * rate_cny(), 2)
+    ref = rate_meta_for(model)  # 参考信息：该卡在 vminers 榜上的对应条目
+
+    snap = {
+        "gpus": gpus, "miners": miners,
+        "ths": round(ths, 2), "power": round(power, 1),
+        "temp": temp, "fan": fan,
+        "accepted": accepted, "rejected": rejected,
+        "uptime": uptime, "model": model, "income_cny_day": income,
+        "income_usdt_day": round(ths * avg, 2) if avg else None,
+        "income_ref_model": (ref or {}).get("ref_model"),
+        "income_ref_ths": (ref or {}).get("ths"),
+        "hostname": payload.get("hostname") or "",
+        "client_version": payload.get("client_version") or "",
+        "game_proc": payload.get("game_proc") or None,
+        "kernel": payload.get("kernel") or "",
+        "kernel_ver": payload.get("kernel_ver") or "",
+        "pool_url": payload.get("pool_url") or "",
+        "conflicts": payload.get("conflicts") or [],
+    }
+    with _db_lock:
+        c.execute(
+            "UPDATE rigs SET last_seen=?, last_report=?, status='online', offline_since=NULL, game_mode=?, "
+            "wallet=CASE WHEN ?<>'' THEN ? ELSE wallet END, "
+            "client_version=CASE WHEN ?<>'' THEN ? ELSE client_version END, "
+            "pool_url=CASE WHEN ?<>'' THEN ? ELSE pool_url END WHERE name=?",
+            (time.time(), json.dumps(snap, ensure_ascii=False), gm,
+             str(payload.get("wallet") or "").strip(), str(payload.get("wallet") or "").strip(),
+             str(payload.get("client_version") or "").strip(),
+             str(payload.get("client_version") or "").strip(),
+             str(payload.get("pool_url") or "").strip(),
+             str(payload.get("pool_url") or "").strip(), name))
+        c.execute(
+            "INSERT INTO samples(rig,ts,ths,power,temp,fan,accepted,rejected,uptime,pool) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (name, time.time(), ths, power, temp, fan, accepted, rejected, uptime,
+             (miners[0].get("pool") if miners else "") or ""))
+        c.commit()
+
+    # 游戏模式进出告警（info 级，退出自动消除）
+    if gm and not old_gm:
+        gproc = payload.get("game_proc")
+        add_alert(name, "info", "gamemode",
+                  "🎮 游戏模式：检测到游戏进程 %s，已暂停挖矿让出显卡" % gproc
+                  if gproc else "🎮 游戏模式：检测到游戏进程，已暂停挖矿让出显卡")
+    elif not gm and old_gm:
+        resolve_alert(name, "gamemode")
+
+    resolve_alert(name, "rig_offline")
+    # 高温告警
+    if temp >= TEMP_WARN_C:
+        add_alert(name, "warn", "temp_high",
+                  "GPU 最高温度 %.0fC ≥ %.0fC" % (temp, TEMP_WARN_C))
+    else:
+        resolve_alert(name, "temp_high")
+    # 算力骤降
+    if ths > 0.1:
+        avg = rig_avg_ths(name, 3600)
+        if avg > 0.1 and ths < avg * (1 - HASHRATE_DROP_PCT / 100.0):
+            add_alert(name, "warn", "hashrate_drop",
+                      "算力 %.1f TH/s 较 1 小时均值 %.1f 下降 %.0f%%"
+                      % (ths, avg, (1 - ths / avg) * 100))
+    # 本机其他挖矿程序（会抢显卡，是算力下降的常见原因）
+    cf = payload.get("conflicts") or []
+    if cf:
+        add_alert(name, "warn", "foreign_miner",
+                  "本机在跑其他挖矿程序：%s，会抢占显卡拉低算力，建议关闭"
+                  % "、".join(str(x) for x in cf[:4]))
+    else:
+        resolve_alert(name, "foreign_miner")
+    return {"ok": True}
+
+
+def sweep_loop():
+    while True:
+        try:
+            c = db()
+            rows = c.execute("SELECT name,last_seen,status FROM rigs").fetchall()
+            for r in rows:
+                if time.time() - (r["last_seen"] or 0) > OFFLINE_SEC:
+                    if r["status"] != "offline":
+                        c.execute("UPDATE rigs SET status='offline', offline_since=? WHERE name=?",
+                                  (time.time(), r["name"]))
+                        c.commit()
+                        add_alert(r["name"], "crit", "rig_offline",
+                                  "矿机掉线：%s（%d 秒无心跳）"
+                                  % (r["name"], int(time.time() - (r["last_seen"] or 0))))
+            c.execute("DELETE FROM samples WHERE ts < ?", (time.time() - SAMPLE_KEEP_DAYS * 86400,))
+            c.commit()
+        except Exception:  # noqa: BLE001
+            traceback.print_exc(limit=1)
+        time.sleep(30)
+
+
+# ---------------------------------------------------------------- 聚合
+
+def fleet_payload():
+    c = db()
+    rigs = c.execute("SELECT * FROM rigs ORDER BY name").fetchall()
+    out = []
+    total = {"online": 0, "ths": 0.0, "power": 0.0, "income": 0.0, "gamemode": 0,
+             "rate_age": int(time.time() - _rate_ts) if _rate_ts else None,
+             "rate_avg_usdt": round(rate_avg(), 5),
+             "cny_rate": rate_cny(),
+             "client_latest": client_release().get("version") or ""}
+    for r in rigs:
+        snap = json.loads(r["last_report"]) if r["last_report"] else None
+        online = r["status"] == "online"
+        r_gm = bool(r["game_mode"]) if "game_mode" in r.keys() else False
+        if online:
+            total["online"] += 1
+            if r_gm:
+                total["gamemode"] += 1
+            if snap:
+                total["ths"] += snap.get("ths") or 0
+                total["power"] += snap.get("power") or 0
+                total["income"] += snap.get("income_cny_day") or 0
+        # 近 12 小时采样（用于迷你曲线，10 分钟粒度抽点）
+        hist = c.execute(
+            "SELECT ts,ths,power,temp FROM samples WHERE rig=? AND ts>? ORDER BY ts",
+            (r["name"], time.time() - 12 * 3600)).fetchall()
+        out.append({
+            "name": r["name"], "status": r["status"],
+            "last_seen": r["last_seen"],
+            "offline_since": r["offline_since"],
+            "game_mode": r_gm,
+            "client_version": (r["client_version"] if "client_version" in r.keys()
+                               else "") or (snap or {}).get("client_version") or "",
+            "pool_url": (r["pool_url"] if "pool_url" in r.keys()
+                         else "") or (snap or {}).get("pool_url") or "",
+            "wallet": wallet_for(r["name"]),
+            "snapshot": snap, "history": [dict(h) for h in hist],
+        })
+    # 同一钱包可能被多台矿机共用（各自上报同一地址），聚合按 (币种,钱包) 去重，
+    # 否则未支付余额/实收/今日收入会按矿机台数翻倍
+    _uniq = unique_wallets()
+    _coins = {v["coin"].upper() for v in _uniq}
+    total["wallet_total"] = round(sum(v["total"] for v in _uniq), 4)
+    _paid = {"h24": 0.0, "yesterday": 0.0, "d7": 0.0, "d30": 0.0, "total": 0.0}
+    for v in _uniq:
+        p = v.get("paid") or {}
+        for k in _paid:
+            _paid[k] = round(_paid[k] + (p.get(k) or 0.0), 6)
+    # 今日实际收入（reward-chart 按天真实收益）
+    _reward = {"today": 0.0, "yesterday": 0.0, "d7": 0.0, "d30": 0.0}
+    for v in _uniq:
+        rs = v.get("rewards") or {}
+        for k in _reward:
+            _reward[k] = round(_reward[k] + (rs.get(k) or 0.0), 6)
+    total["wallet_paid"] = _paid
+    total["wallet_reward"] = _reward
+    total["wallet_reward_coin"] = (next(iter(_coins)) if len(_coins) == 1
+                                   else ("MIX" if _coins else ""))
+    total["wallet_coin"] = _coins.pop() if len(_coins) == 1 else ("MIX" if _coins else "")
+    total["wallet_age"] = int(time.time() - _wallet_ts) if _wallet_ts else None
+    total["ths"] = round(total["ths"], 1)
+    total["power"] = round(total["power"], 0)
+    total["income"] = round(total["income"], 0)
+    return {"ok": True, "now": now_cn(), "total": total, "rigs": out}
+
+
+def history_payload(rig, hours):
+    c = db()
+    rows = c.execute(
+        "SELECT ts,ths,power,temp,fan,accepted,rejected FROM samples WHERE rig=? AND ts>? ORDER BY ts",
+        (rig, time.time() - hours * 3600)).fetchall()
+    return {"ok": True, "rig": rig, "samples": [dict(x) for x in rows]}
+
+
+# ---------------------------------------------------------------- 挖矿内核仓库
+# 矿机端可能连不上境外源（GitHub/官方站），由中控做下载代理：
+# 检查版本（GitHub API）→ 多镜像下载 zip 缓存到 NAS → 矿机端从中控直下。
+
+KERNEL_REPO = {
+    "srbminer": {"repo": "doktor83/SRBMiner-Multi", "exe": "SRBMiner-MULTI.exe", "label": "SRBMiner-MULTI"},
+    "bzminer": {"repo": "bzminer/bzminer", "exe": "bzminer.exe", "label": "BzMiner"},
+    "wildrig": {"repo": "andru-kun/wildrig-multi", "exe": "wildrig.exe", "label": "WildRig"},
+}
+# 矿机端可选内核（miner_client.KERNELS 的键，中控仅做白名单校验；
+# 切换由矿机端按需从中控下载内核 zip 后重启矿工生效）
+KERNEL_KEYS = ("SRBMiner-MULTI", "BzMiner", "WildRig")
+
+# ---------------------------------------------------------------- 矿池目录
+# 与矿机端 miner_client.py 的 POOL_BRANDS 保持一致（改一边必须同步另一边）：
+# 矿机端本地界面用自己那份，中控看板用这份。二者允许短暂不一致——
+# set_pool 只校验 URL 格式，客户端接受任意合法 stratum 地址。
+# region 分级口径见 miner_client.py：cn 大陆 / hmt 港澳台 / abroad 海外。
+POOL_BRANDS = [
+    {
+        "id": "kryptex", "name": "Kryptex", "fee": "1%",
+        "note": "多币种平台，PRL 节点覆盖最广，支持 TLS（同主机 8048）",
+        "nodes": [
+            {"label": "中国香港", "region": "hmt", "geo": "香港 · 九龙",
+             "host": "prl-hk.kryptex.network", "port": 7048},
+            {"label": "新加坡", "region": "abroad", "geo": "新加坡",
+             "host": "prl-sg.kryptex.network", "port": 7048},
+            {"label": "欧洲", "region": "abroad", "geo": "德国 · 法尔肯施泰因",
+             "host": "prl.kryptex.network", "port": 7048},
+            {"label": "北美", "region": "abroad", "geo": "美国 · 弗吉尼亚",
+             "host": "prl-us.kryptex.network", "port": 7048},
+            {"label": "俄罗斯", "region": "abroad", "geo": "俄罗斯 · 莫斯科",
+             "host": "prl-ru.kryptex.network", "port": 7048},
+        ],
+    },
+    {
+        "id": "pearlhash", "name": "PearlHash", "fee": "1%",
+        "note": "Pearl 官方专用池；配 WildRig 内核 0 开发费。全球 Anycast 单入口自动就近，无大陆机房",
+        "nodes": [
+            {"label": "全球（Anycast）", "region": "abroad",
+             "geo": "AWS Global Accelerator · 实测 ~111ms",
+             "host": "pool.pearlhash.xyz", "port": 9000},
+        ],
+    },
+    {
+        "id": "k1pool", "name": "K1Pool", "fee": "0%",
+        "note": "PPLNS 零费率；「中国线路」实际落地香港，非大陆机房",
+        "nodes": [
+            {"label": "中国线路", "region": "hmt", "geo": "香港 · AWS",
+             "host": "cn.pearl.k1pool.com", "port": 3360},
+            {"label": "欧洲", "region": "abroad", "geo": "法国 · 格拉沃利讷",
+             "host": "eu.pearl.k1pool.com", "port": 3360},
+            {"label": "美国", "region": "abroad", "geo": "加拿大 · 博阿努瓦",
+             "host": "us.pearl.k1pool.com", "port": 3360},
+            {"label": "欧洲 SOLO", "region": "abroad", "geo": "法国 · 格拉沃利讷",
+             "host": "eu.pearlsolo.k1pool.com", "port": 3362},
+        ],
+    },
+    {
+        "id": "f2pool", "name": "F2Pool 飞鱼", "fee": "1%",
+        "note": "PPLNS；钱包位填 F2Pool 账户名而非 PRL 地址",
+        "nodes": [
+            {"label": "全球", "region": "abroad", "geo": "美国 · 旧金山",
+             "host": "pearl.f2pool.com", "port": 5500},
+        ],
+    },
+    {
+        "id": "herominers", "name": "HeroMiners", "fee": "1%",
+        "note": "PPLNS，界面与统计做得细",
+        "nodes": [
+            {"label": "全球", "region": "abroad", "geo": "美国 · 旧金山",
+             "host": "pearl.herominers.com", "port": 1200},
+        ],
+    },
+    {
+        "id": "alphapool", "name": "AlphaPool", "fee": "1%",
+        "note": "新加坡单节点，亚太线路",
+        "nodes": [
+            {"label": "新加坡", "region": "abroad", "geo": "新加坡",
+             "host": "sg1.alphapool.tech", "port": 5571},
+        ],
+    },
+]
+POOL_REGION_TAG = {"cn": "大陆直连", "hmt": "中国港澳台", "abroad": "海外"}
+_POOL_URL_RE = re.compile(r"^stratum\+(tcp|ssl)://[A-Za-z0-9._\-]+:\d{1,5}$")
+
+
+def pool_node_url(n):
+    return "stratum+tcp://%s:%d" % (n["host"], int(n["port"]))
+
+
+def valid_pool_url(u):
+    """stratum 地址格式校验（自定义矿池也走同一规则）。"""
+    u = (u or "").strip()
+    if not _POOL_URL_RE.match(u):
+        return False
+    try:
+        return 0 < int(u.rsplit(":", 1)[1]) <= 65535
+    except ValueError:
+        return False
+
+
+def pool_catalog_payload():
+    """看板「更换矿池」用的目录：品牌 + 节点（带 url 与区域标注）。"""
+    brands = []
+    for b in POOL_BRANDS:
+        brands.append({
+            "id": b["id"], "name": b["name"], "fee": b["fee"], "note": b["note"],
+            "nodes": [dict(n, url=pool_node_url(n),
+                           region_tag=POOL_REGION_TAG.get(n["region"], n["region"]))
+                      for n in b["nodes"]],
+        })
+    return {"ok": True, "brands": brands,
+            "custom": {"id": "custom", "name": "自定义矿池…",
+                       "hint": "手动填写 stratum+tcp://主机:端口"},
+            "region_tag": POOL_REGION_TAG}
+# 下载镜像（逐个尝试，空串=直连）
+GH_MIRRORS = ["", "https://ghfast.top/", "https://gh-proxy.com/"]
+KERNEL_DIR = os.path.join(DATA_DIR, "kernels")
+_kernel_meta = {"checked": 0, "catalog": {}}  # name -> {version,url,size,file,checked}
+
+# ---------------------------------------------------------------- 客户端安装包分发
+# 把矿机端 exe / 安卓 apk 放到 data/downloads/ 即可在看板一键下载（部署脚本负责同步）
+DOWNLOAD_DIR = os.path.join(DATA_DIR, "downloads")
+CLIENT_FILES = [
+    {"key": "exe", "file": "BaPiMiner.exe", "icon": "🖥",
+     "title": "矿机端 · Windows", "plat": "Windows 10 / 11 · x64",
+     "desc": "双击即用，中控地址与令牌已内置；首次启动自动下载挖矿内核，无需手工配置。"},
+    {"key": "apk", "file": "BaPiMiner-android.apk", "icon": "📱",
+     "title": "手机端 · Android", "plat": "Android 6.0 以上 · arm64 / armeabi-v7a",
+     "desc": "手机随时看矿机状态、收告警、远程启停与切换游戏模式。"},
+]
+_sha_cache = {}  # path -> (size, mtime, sha256)
+
+
+def _sha256_of(path):
+    st = os.stat(path)
+    key = (st.st_size, int(st.st_mtime))
+    hit = _sha_cache.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            b = f.read(1 << 20)
+            if not b:
+                break
+            h.update(b)
+    digest = h.hexdigest()
+    _sha_cache[path] = (key, digest)
+    return digest
+
+
+def downloads_payload():
+    """可下载的客户端安装包（不存在也返回条目，前端提示「待上传」）。"""
+    items = []
+    for it in CLIENT_FILES:
+        path = os.path.join(DOWNLOAD_DIR, it["file"])
+        ok = os.path.isfile(path)
+        size = os.path.getsize(path) if ok else 0
+        item = {
+            "key": it["key"], "icon": it["icon"], "title": it["title"],
+            "plat": it["plat"], "desc": it["desc"],
+            "name": it["file"], "url": "/download/" + it["file"],
+            "ready": ok, "size": size,
+            "version": (client_release().get("version") or "") if it["key"] == "exe" else "",
+            "mtime": int(os.path.getmtime(path)) if ok else 0,
+            "sha256": _sha256_of(path) if ok else "",
+        }
+        items.append(item)
+    return {"ok": True, "items": items,
+            "total": sum(i["size"] for i in items)}
+
+
+# ---------------------------------------------------------------- 客户端自动更新
+# 上传 exe 时一并写 data/client_release.json：{"version":"1.7.0.0","notes":"...","uploaded":ts}
+# 矿机端拿自身 exe 的 sha256 与 /api/client_latest 比对，不一致即静默自更新。
+CLIENT_RELEASE = os.path.join(DATA_DIR, "client_release.json")
+
+
+def client_release():
+    try:
+        with open(CLIENT_RELEASE, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def client_latest_payload():
+    """矿机端自更新用的最新客户端信息（不含 admin 鉴权，新装机也能查）。"""
+    path = os.path.join(DOWNLOAD_DIR, "BaPiMiner.exe")
+    ok = os.path.isfile(path)
+    rel = client_release()
+    return {
+        "ok": True,
+        "name": "BaPiMiner.exe",
+        "url": "/download/BaPiMiner.exe",
+        "ready": ok,
+        "size": os.path.getsize(path) if ok else 0,
+        "sha256": _sha256_of(path) if ok else "",
+        "mtime": int(os.path.getmtime(path)) if ok else 0,
+        "version": rel.get("version") or "",
+        "notes": rel.get("notes") or "",
+        "uploaded": rel.get("uploaded") or 0,
+    }
+
+
+def _gh_api(url):
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "bapiminer-server/1.0",
+        "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+
+def kernel_check():
+    """检查两个内核的最新版本（单仓库失败不影响其它）。"""
+    for name, info in KERNEL_REPO.items():
+        try:
+            rel = _gh_api("https://api.github.com/repos/%s/releases/latest" % info["repo"])
+            asset = None
+            for a in rel.get("assets") or []:
+                n = a.get("name", "").lower()
+                if n.endswith(".zip") and ("windows" in n or "win64" in n or "x64" in n) \
+                        and "linux" not in n and "macos" not in n:
+                    asset = a
+                    if "x64" in n:
+                        break
+            if asset:
+                _kernel_meta["catalog"][name] = {
+                    "version": rel.get("tag_name") or rel.get("name") or "",
+                    "url": asset["browser_download_url"],
+                    "size": asset.get("size"),
+                    "file": asset.get("name"),
+                    "label": info["label"], "exe": info["exe"],
+                    "checked": time.time(),
+                }
+                print("[kernel] %s 最新版 %s (%s)" % (name, rel.get("tag_name"), asset["name"]))
+        except Exception as e:  # noqa: BLE001
+            print("[kernel] 检查 %s 失败: %s" % (name, e))
+    _kernel_meta["checked"] = time.time()
+    try:
+        with open(os.path.join(DATA_DIR, "kernel_meta.json"), "w", encoding="utf-8") as f:
+            json.dump(_kernel_meta, f, ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+
+
+def kernel_loop():
+    while True:
+        try:
+            kernel_check()
+        except Exception:  # noqa: BLE001
+            traceback.print_exc(limit=1)
+        time.sleep(6 * 3600)
+
+
+def load_kernel_meta():
+    """启动时把上次检查到的版本读回内存，避免重启后看板/矿机端看不到版本。"""
+    try:
+        with open(os.path.join(DATA_DIR, "kernel_meta.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            _kernel_meta["checked"] = d.get("checked") or 0
+            _kernel_meta["catalog"] = d.get("catalog") or {}
+            if _kernel_meta["catalog"]:
+                print("[kernel] 已载入 %d 个内核版本信息" % len(_kernel_meta["catalog"]),
+                      flush=True)
+    except (OSError, ValueError):
+        pass
+
+
+def kernel_download(name):
+    """下载（带镜像重试）并缓存，返回 (本地路径, 错误)。"""
+    meta = _kernel_meta["catalog"].get(name)
+    if not meta:
+        return None, "尚无 %s 版本信息，请先点「检查更新」" % name
+    os.makedirs(KERNEL_DIR, exist_ok=True)
+    dest = os.path.join(KERNEL_DIR, "%s-%s.zip" % (name, meta["version"]))
+    if os.path.exists(dest) and os.path.getsize(dest) > 1_000_000:
+        return dest, None
+    err = None
+    for m in GH_MIRRORS:
+        url = m + meta["url"] if m else meta["url"]
+        try:
+            print("[kernel] 下载 %s (%s)" % (meta["file"], url[:70] or "direct"))
+            req = urllib.request.Request(url, headers={"User-Agent": "bapiminer/1.0"})
+            with urllib.request.urlopen(req, timeout=900) as r, open(dest + ".part", "wb") as f:
+                while True:
+                    chunk = r.read(1 << 16)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+            os.replace(dest + ".part", dest)
+            return dest, None
+        except Exception as e:  # noqa: BLE001
+            err = e
+            print("[kernel] 源失败 %s: %s" % (url[:70] or "direct", e))
+    return None, "所有下载源均失败: %s" % err
+
+
+def kernel_payload():
+    cached = []
+    try:
+        for f in sorted(os.listdir(KERNEL_DIR)):
+            if f.endswith(".zip"):
+                cached.append({"file": f, "size": os.path.getsize(os.path.join(KERNEL_DIR, f))})
+    except OSError:
+        pass
+    return {"ok": True, "checked": _kernel_meta["checked"], "catalog": _kernel_meta["catalog"],
+            "cached": cached}
+
+
+def daily_payload(days=30):
+    """按天收益估算（按矿池分组）：日内样本均值算力 × 收益率。"""
+    c = db()
+    since = time.time() - days * 86400
+    try:
+        rows = c.execute(
+            "SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, pool, AVG(ths) aths, MAX(temp) mtemp "
+            "FROM samples WHERE ts>? AND ths>0 GROUP BY dkey,rig,pool ORDER BY dkey DESC",
+            (since,)).fetchall()
+    except sqlite3.OperationalError:  # 老库无 pool 列
+        rows = c.execute(
+            "SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, '' pool, AVG(ths) aths, MAX(temp) mtemp "
+            "FROM samples WHERE ts>? AND ths>0 GROUP BY dkey,rig ORDER BY dkey DESC",
+            (since,)).fetchall()
+    days_out = {}
+    avg = rate_avg()
+    for x in rows:
+        # dkey = floor((ts+28800)/86400) 即北京日序；dkey*86400 正是该北京日
+        # 00:00 的 UTC 时间戳，直接 gmtime 取日期即北京日期（不能再 -28800，
+        # 否则整表提前一天，估算与实收错行）
+        day = time.strftime("%Y-%m-%d", time.gmtime(int(x["dkey"]) * 86400))
+        usdt = (x["aths"] or 0) * avg
+        d = days_out.setdefault(day, {"day": day, "usdt": 0.0, "rigs": {}})
+        e = d["rigs"].setdefault(x["rig"], {"rig": x["rig"], "ths": 0.0, "usdt": 0.0, "pools": {}})
+        e["ths"] += x["aths"] or 0
+        e["usdt"] += usdt
+        pool = x["pool"] or "未知矿池"
+        e["pools"][pool] = round(e["pools"].get(pool, 0.0) + usdt, 4)
+        d["usdt"] += usdt
+    # 矿池打款记录（真实收入，攒起付线批量到账）按天并入（钱包去重，防共用地址翻倍）
+    paid_days = {}
+    for v in unique_wallets():
+        p = v.get("paid") or {}
+        for day, amt in (p.get("days") or {}).items():
+            paid_days[day] = round(paid_days.get(day, 0.0) + amt, 6)
+    out = []
+    for day in sorted(days_out, reverse=True):
+        d = days_out[day]
+        for e in d["rigs"].values():
+            e["ths"] = round(e["ths"], 2)
+            e["usdt"] = round(e["usdt"], 4)
+            e["cny"] = round(e["usdt"] * rate_cny(), 2)
+        d["usdt"] = round(d["usdt"], 4)
+        d["cny"] = round(d["usdt"] * rate_cny(), 2)
+        out.append({"day": day, "usdt": d["usdt"], "cny": d["cny"],
+                    "paid": paid_days.get(day, 0.0), "paid_cny": round(paid_days.get(day, 0.0) * rate_cny(), 2),
+                    "rigs": sorted(d["rigs"].values(), key=lambda x: -x["usdt"])})
+    # 打款发生在估算无数据的日子（离线日到账）也要展示
+    known = {o["day"] for o in out}
+    for day, amt in sorted(paid_days.items(), reverse=True):
+        if day not in known:
+            out.append({"day": day, "usdt": 0.0, "cny": 0.0,
+                        "paid": amt, "paid_cny": round(amt * rate_cny(), 2), "rigs": []})
+    out.sort(key=lambda o: o["day"], reverse=True)
+    return {"ok": True, "days": out}
+
+
+# ---------------------------------------------------------------- HTTP
+
+class Handler(BaseHTTPRequestHandler):
+    server_version = "BaPiMiner/1.0"
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *args):
+        pass
+
+    def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
+        if isinstance(body, str):
+            body = body.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type,X-Rig-Token,X-Admin-Token")
+        self.send_header("Access-Control-Expose-Headers", "X-Kernel-Version,X-Kernel-Name,X-Kernel-Key")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        for hk, hv in (extra or {}).items():
+            # HTTP 头只能放 latin-1，非 ASCII 一律剔除，避免 send_header 抛错
+            self.send_header(hk, "".join(ch for ch in str(hv) if ord(ch) < 128))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _json(self, obj, code=200):
+        self._send(code, json.dumps(obj, ensure_ascii=False))
+
+    def _send_file(self, path, fname, ctype="application/octet-stream"):
+        """分块发送大文件，支持 Range（浏览器/下载器可续传）。"""
+        size = os.path.getsize(path)
+        start, end, code = 0, size - 1, 200
+        m = re.match(r"bytes=(\d*)-(\d*)", self.headers.get("Range") or "")
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                start = int(m.group(1))
+            if m.group(2):
+                end = min(int(m.group(2)), size - 1)
+            if start >= size or start > end:
+                self.send_response(416)
+                self.send_header("Content-Range", "bytes */%d" % size)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
+            code = 206
+        length = end - start + 1
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(length))
+        self.send_header("Content-Disposition", 'attachment; filename="%s"' % fname)
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Cache-Control", "public, max-age=600")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        if code == 206:
+            self.send_header("Content-Range", "bytes %d-%d/%d" % (start, end, size))
+        self.end_headers()
+        try:
+            with open(path, "rb") as f:
+                f.seek(start)
+                left = length
+                while left > 0:
+                    chunk = f.read(min(1 << 20, left))
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+                    left -= len(chunk)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+    def _read_json(self):
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+            raw = self.rfile.read(n) if n else b"{}"
+            return json.loads(raw.decode("utf-8"))
+        except Exception as e:  # noqa: BLE001
+            return {"__error__": str(e)}
+
+    def _rig_auth(self):
+        return self.headers.get("X-Rig-Token") or ""
+
+    def _admin_auth(self):
+        return self.headers.get("X-Admin-Token") or ""
+
+    def do_OPTIONS(self):
+        self._send(200, "{}")
+
+    def do_GET(self):
+        u = urlparse(self.path)
+        p, q = u.path, parse_qs(u.query)
+        if p == "/api/poll":
+            name = (q.get("name") or [""])[0]
+            err = rig_auth_check(name, self._rig_auth(), "轮询")
+            if err:
+                return self._json({"ok": False, "error": err}, 401)
+            c = db()
+            with _db_lock:
+                pend = c.execute(
+                    "SELECT id,cmd,arg FROM commands WHERE rig=? AND status='pending' ORDER BY id",
+                    (name,)).fetchall()
+                if pend:
+                    c.execute("UPDATE commands SET status='sent', picked=? WHERE rig=? AND status='pending'",
+                              (time.time(), name))
+                c.commit()
+            return self._json({"ok": True, "commands": [dict(x) for x in pend]})
+
+        if p == "/api/fleet":
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            return self._json(fleet_payload())
+
+        if p == "/api/history":
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            rig = (q.get("rig") or [""])[0]
+            hours = min(168, max(1, int((q.get("hours") or ["24"])[0])))
+            return self._json(history_payload(rig, hours))
+
+        if p == "/api/alerts":
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            c = db()
+            rows = c.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT 80").fetchall()
+            return self._json({"ok": True, "alerts": [dict(x) for x in rows]})
+
+        if p == "/api/health":
+            c = db()
+            n = c.execute("SELECT COUNT(*) n FROM rigs").fetchone()["n"]
+            return self._json({"ok": True, "rigs": n, "now": now_cn()})
+
+        if p == "/api/daily":
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            days = min(90, max(1, int((q.get("days") or ["30"])[0])))
+            return self._json(daily_payload(days))
+
+        if p == "/api/kernels":
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            return self._json(kernel_payload())
+
+        if p == "/api/pools":
+            # 矿池目录：看板「更换矿池」选择用（静态参考数据，无敏感信息）
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            return self._json(pool_catalog_payload())
+
+        if p == "/api/downloads":
+            # 公开：机主拿到链接就能下，清单里没有敏感信息
+            return self._json(downloads_payload())
+
+        if p == "/api/client_latest":
+            # 公开：矿机端自更新要读；只暴露版本号与文件指纹，无敏感信息
+            return self._json(client_latest_payload())
+
+        if p.startswith("/download/"):
+            fname = unquote(p[len("/download/"):])
+            if fname not in {it["file"] for it in CLIENT_FILES}:
+                return self._json({"ok": False, "error": "not found"}, 404)
+            fpath = os.path.join(DOWNLOAD_DIR, fname)
+            if not os.path.isfile(fpath):
+                return self._json({"ok": False, "error": "安装包还没上传到中控"}, 404)
+            ctype = ("application/vnd.android.package-archive" if fname.endswith(".apk")
+                     else "application/octet-stream")
+            return self._send_file(fpath, fname, ctype)
+
+        if p == "/api/kernel_catalog":
+            # 矿机端只读版本信息（客户端上显示「最新 vX」），不需要 admin 权限
+            return self._json(kernel_payload())
+
+        if p == "/api/income_meta":
+            rig = (q.get("rig") or [""])[0].strip()
+            err = rig_auth_check(rig, self._rig_auth(), "收益口径")
+            if err:
+                return self._json({"ok": False, "error": err}, 401)
+            out = {
+                "ok": True,
+                "rate_avg_usdt": round(rate_avg(), 6),
+                "cny_rate": rate_cny(),
+                "rate_age": int(time.time() - _rate_ts) if _rate_ts else None,
+                "source": INCOME_SRC,
+            }
+            with _wallet_lock:
+                w = dict(_wallet_map.get(rig) or {})
+            if w:
+                out["wallet"] = {
+                    "total": w.get("total"), "confirmed": w.get("confirmed"),
+                    "unconfirmed": w.get("unconfirmed"), "coin": w.get("coin"),
+                    "threshold": w.get("threshold"), "pct": w.get("pct"),
+                    "paid": w.get("paid"), "rewards": w.get("rewards"),
+                }
+            return self._json(out)
+
+        if p == "/api/kernel_dl":
+            tk = self._rig_auth()
+            rig_name = (q.get("rig") or [""])[0].strip()
+            c = db()
+            row = c.execute("SELECT token FROM rigs WHERE name=?", (rig_name,)).fetchone() if rig_name else None
+            if row is not None:
+                stored = row["token"] or ""
+                if stored and stored != tk:
+                    return self._json({"ok": False, "error": "token mismatch"}, 401)
+                if not stored:
+                    # 接入码被管理员重置过 → 本次下载自动重新绑定
+                    if not tk:
+                        return self._json({"ok": False, "error": "auth failed"}, 401)
+                    with _db_lock:
+                        c.execute("UPDATE rigs SET token=?, last_seen=? WHERE name=?",
+                                  (tk, time.time(), rig_name))
+                        c.commit()
+                    add_alert(rig_name, "info", "rig_rebind", "矿机 %s 已重新绑定接入码（内核下载认领）" % rig_name)
+                    print("[rig] 重新绑定接入码：%s（内核下载认领）" % rig_name)
+            if row is None:
+                # 未注册矿机下载内核时自动注册（与首次上报同规则）
+                if not rig_name or not tk:
+                    return self._json({"ok": False, "error": "auth failed"}, 401)
+                with _db_lock:
+                    c.execute("INSERT INTO rigs(name,token,first_seen,last_seen,status) VALUES(?,?,?,?,?)",
+                              (rig_name, tk, time.time(), time.time(), "online"))
+                    c.commit()
+                add_alert(rig_name, "info", "rig_new", "新矿机接入（内核下载自动注册）：%s" % rig_name)
+                print("[rig] 新矿机注册（kernel_dl）：%s" % rig_name)
+            name = (q.get("kernel") or [""])[0]
+            if name not in KERNEL_REPO:
+                return self._json({"ok": False, "error": "unknown kernel"}, 400)
+            path, err = kernel_download(name)
+            if err:
+                return self._json({"ok": False, "error": err}, 502)
+            meta = _kernel_meta["catalog"].get(name) or {}
+            with open(path, "rb") as f:
+                data = f.read()
+            return self._send(200, data, "application/zip", extra={
+                "X-Kernel-Version": meta.get("version") or "",
+                "X-Kernel-Name": meta.get("file") or "",
+                "X-Kernel-Key": name,
+            })
+
+        if p in ("/", "/index.html"):
+            try:
+                with open(os.path.join(STATIC_DIR, "index.html"), "rb") as f:
+                    return self._send(200, f.read(), "text/html; charset=utf-8")
+            except FileNotFoundError:
+                return self._send(404, "dashboard missing", "text/plain")
+
+        if p == "/bapiminer.svg":
+            try:
+                with open(os.path.join(STATIC_DIR, "bapiminer.svg"), "rb") as f:
+                    return self._send(200, f.read(), "image/svg+xml",
+                                      extra={"Cache-Control": "public, max-age=86400"})
+            except FileNotFoundError:
+                return self._send(404, "Not Found", "text/plain")
+
+        return self._send(404, "Not Found", "text/plain; charset=utf-8")
+
+    def do_POST(self):
+        u = urlparse(self.path)
+        p = u.path
+        if p == "/api/report":
+            body = self._read_json()
+            if "__error__" in body:
+                return self._json({"ok": False, "error": body["__error__"]}, 400)
+            rep = handle_report(body)
+            # 接入码不匹配用真实 401，便于矿机端识别并给出明确指引
+            if not rep.get("ok") and "mismatch" in str(rep.get("error") or ""):
+                return self._json(rep, 401)
+            return self._json(rep)
+
+        if p == "/api/cmd_result":
+            body = self._read_json()
+            err = rig_auth_check(str(body.get("rig") or ""), self._rig_auth(), "命令回执")
+            if err:
+                return self._json({"ok": False, "error": err}, 401)
+            c = db()
+            with _db_lock:
+                c.execute("UPDATE commands SET status=?, finished=?, result=? WHERE id=?",
+                          ("done" if body.get("ok") else "failed", time.time(),
+                           str(body.get("result") or "")[:500], body.get("id")))
+                c.commit()
+            return self._json({"ok": True})
+
+        if p == "/api/rig_reset_token":
+            body = self._read_json()
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            rig = str(body.get("rig") or "").strip()
+            if not rig:
+                return self._json({"ok": False, "error": "缺少 rig"}, 400)
+            c = db()
+            row = c.execute("SELECT name FROM rigs WHERE name=?", (rig,)).fetchone()
+            if row is None:
+                return self._json({"ok": False, "error": "矿机不存在：%s" % rig})
+            with _db_lock:
+                c.execute("UPDATE rigs SET token='' WHERE name=?", (rig,))
+                c.commit()
+            add_alert(rig, "warn", "rig_token_reset",
+                      "矿机 %s 接入码已重置，等待矿机端重新绑定" % rig)
+            print("[rig] 接入码已重置：%s" % rig)
+            return self._json({"ok": True, "rig": rig})
+
+        if p == "/api/kernel/check":
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            kernel_check()
+            return self._json(kernel_payload())
+
+        if p == "/api/command":
+            body = self._read_json()
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            rig, cmd = body.get("rig") or "", body.get("cmd") or ""
+            arg = body.get("arg") or {}
+            if not isinstance(arg, dict):
+                return self._json({"ok": False, "error": "arg 必须是对象"}, 400)
+            if not rig or not cmd:
+                return self._json({"ok": False, "error": "rig/cmd 必填"}, 400)
+            if cmd not in {"restart_miner", "start_miner", "stop_miner",
+                           "gamemode_on", "gamemode_off", "update_kernel",
+                           "update_client", "set_pool", "set_kernel"}:
+                return self._json({"ok": False, "error": "未知命令: %s" % cmd}, 400)
+            if cmd == "set_pool":
+                if not valid_pool_url(str(arg.get("pool_url") or "")):
+                    return self._json({"ok": False,
+                                       "error": "矿池地址格式应为 stratum+tcp://主机:端口"}, 400)
+            elif cmd == "set_kernel":
+                if str(arg.get("kernel") or "") not in KERNEL_KEYS:
+                    return self._json({"ok": False, "error": "内核必须是 %s 之一"
+                                       % " / ".join(KERNEL_KEYS)}, 400)
+            c = db()
+            names = [r["name"] for r in c.execute("SELECT name FROM rigs").fetchall()]
+            if rig == "*":
+                targets = names
+            else:
+                if rig not in names:
+                    return self._json({"ok": False, "error": "矿机不存在：%s" % rig}, 400)
+                targets = [rig]
+            with _db_lock:
+                for t in targets:
+                    c.execute("INSERT INTO commands(rig,cmd,arg,created) VALUES(?,?,?,?)",
+                              (t, cmd, json.dumps(arg), time.time()))
+                c.commit()
+            print("[cmd] 已下发 %s -> %s" % (cmd, "全部(%d台)" % len(targets) if rig == "*" else rig))
+            return self._json({"ok": True, "targets": targets})
+
+        if p == "/api/alerts/resolve":
+            body = self._read_json()
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            c = db()
+            c.execute("UPDATE alerts SET resolved=1, resolved_ts=? WHERE id=?",
+                      (time.time(), body.get("id")))
+            c.commit()
+            return self._json({"ok": True})
+
+        if p == "/api/wallet":
+            body = self._read_json()
+            if self._admin_auth() != _admin_token:
+                return self._json({"ok": False, "error": "admin token required"}, 401)
+            rig = (body.get("rig") or "").strip()
+            if not rig:
+                return self._json({"ok": False, "error": "rig 必填"}, 400)
+            return self._json(wallet_set(rig, str(body.get("wallet") or "")))
+
+        return self._send(404, "Not Found", "text/plain; charset=utf-8")
+
+
+def main():
+    _load_config()
+    init_db()
+    os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+    load_kernel_meta()
+    threading.Thread(target=sweep_loop, daemon=True).start()
+    threading.Thread(target=rate_fetch_loop, daemon=True).start()
+    threading.Thread(target=wallet_loop, daemon=True).start()
+    threading.Thread(target=kernel_loop, daemon=True).start()
+    srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
+    srv.daemon_threads = True
+    print("[server] 扒皮矿工中控已启动  http://0.0.0.0:%d" % PORT, flush=True)
+    print("[server] admin_token=%s  （看板首次打开时输入一次）" % _admin_token, flush=True)
+    try:
+        srv.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

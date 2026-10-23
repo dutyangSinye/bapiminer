@@ -1,0 +1,13 @@
+pythonw 进程: C:\Users\Admin\.workbuddy\binaries\python\envs\minrigs-build2\Scripts\pythonw.exe
+是否无控制台: True
+基线可见控制台窗口: 0
+旧写法 5 次调用 -> 新增控制台窗口 5 个
+新写法 5 次调用 -> 新增控制台窗口 0 个
+--- 明细 ---
+  [旧写法] pid=10568 title='C:\\Windows\\SYSTEM32\\nvidia-smi.exe'
+  [旧写法] pid=40384 title='C:\\Windows\\SYSTEM32\\nvidia-smi.exe'
+  [旧写法] pid=18672 title='C:\\Windows\\SYSTEM32\\nvidia-smi.exe'
+  [旧写法] pid=53076 title='C:\\Windows\\SYSTEM32\\nvidia-smi.exe'
+  [旧写法] pid=27636 title='C:\\Windows\\SYSTEM32\\nvidia-smi.exe'
+---
+RESULT=PASS 旧写法会弹窗（5 次），静默写法零窗口
