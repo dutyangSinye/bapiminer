@@ -1,4 +1,4 @@
-# 扒皮矿工 BaPiMiner
+# 扒皮矿工 BaPiMiner 珍珠币真正的不扒皮矿工 全开源 不忽悠。
 
 PRL（pearlhash）矿场一体化系统：**中控看板 + Windows 矿机端 + Android 手机端**。
 
