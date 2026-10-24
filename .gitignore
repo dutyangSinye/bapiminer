@@ -32,3 +32,4 @@ shots/
 tests/shots/
 *.png.tmp
 .DS_Store
+.new_admin_token.txt
