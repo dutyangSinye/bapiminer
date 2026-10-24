@@ -40,10 +40,13 @@
 """
 
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import sqlite3
+import sys
 import threading
 import time
 import traceback
@@ -69,6 +72,8 @@ INCOME_SRC = os.environ.get(
 
 _db_lock = threading.Lock()
 _admin_token = ""
+_allow_register = True
+_cfg = {}
 _rate_lock = threading.Lock()
 _rate_map = {}          # 型号 -> USDT/TH/s/天（来自 vminers PRL 实测榜）
 _rate_meta = {}         # 型号 -> {ths, prl_day, usdt_day, power_w}
@@ -81,7 +86,7 @@ _rate_ts = 0.0
 
 
 def _load_config():
-    global _admin_token
+    global _admin_token, _allow_register, _cfg
     os.makedirs(DATA_DIR, exist_ok=True)
     cfg = {}
     if os.path.isfile(CONFIG_FILE):
@@ -90,6 +95,7 @@ def _load_config():
                 cfg = json.load(f)
         except Exception as e:  # noqa: BLE001
             print("[config] 读取失败: %s" % e)
+    _cfg = cfg
     _admin_token = str(cfg.get("admin_token") or "")
     if not _admin_token:
         import secrets
@@ -99,12 +105,15 @@ def _load_config():
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(cfg, f, ensure_ascii=False, indent=2)
         print("[config] 已生成 %s  admin_token=%s" % (CONFIG_FILE, _admin_token))
+    # D2：注册开关（默认开放，不需要邀请码）
+    _allow_register = bool(cfg.get("allow_register", True))
 
 
 # ---------------------------------------------------------------- 数据库
 
 def _conn():
-    c = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=15)
+    c = sqlite3.connect(DB_FILE, check_same_thread=False, timeout=15,
+                        isolation_level=None)   # autocommit：单语句事务，杜绝忘 commit 长持写锁
     c.row_factory = sqlite3.Row
     return c
 
@@ -187,6 +196,506 @@ CREATE TABLE IF NOT EXISTS alerts(
         print("[db] rigs 表新增 pool_url 列")
     except Exception:  # noqa: BLE001
         pass  # 列已存在
+    # ---- 多用户体系（1.13.0.0）----
+    c.executescript("""
+CREATE TABLE IF NOT EXISTS users(
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  username      TEXT UNIQUE NOT NULL,
+  pwd_hash      TEXT NOT NULL,
+  pwd_salt      TEXT NOT NULL,
+  is_admin      INTEGER DEFAULT 0,
+  status        TEXT DEFAULT 'active',
+  created_at    REAL,
+  last_login_at REAL
+);
+CREATE TABLE IF NOT EXISTS sessions(
+  token      TEXT PRIMARY KEY,
+  user_id    INTEGER NOT NULL,
+  created_at REAL,
+  expires_at REAL,
+  ua         TEXT,
+  ip         TEXT
+);
+CREATE TABLE IF NOT EXISTS rig_owner_log(
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  rig     TEXT NOT NULL,
+  old_user INTEGER,
+  new_user INTEGER,
+  action  TEXT,
+  note    TEXT,
+  ts      REAL
+);
+CREATE TABLE IF NOT EXISTS login_fail(
+  key       TEXT PRIMARY KEY,
+  fails     INTEGER DEFAULT 0,
+  locked_until REAL,
+  last_fail REAL
+);
+""")
+    c.commit()
+    # rigs 归属与展示名（ALTER 幂等：已存在则跳过）
+    for col, ddl in (
+        ("owner_id", "ALTER TABLE rigs ADD COLUMN owner_id INTEGER DEFAULT 0"),
+        ("display_name", "ALTER TABLE rigs ADD COLUMN display_name TEXT DEFAULT ''"),
+        ("bound_at", "ALTER TABLE rigs ADD COLUMN bound_at REAL"),
+    ):
+        try:
+            c.execute(ddl)
+            c.commit()
+            print("[db] rigs 表新增 %s 列" % col)
+        except Exception:  # noqa: BLE001
+            pass  # 列已存在
+    # 存量矿机 display_name 回填为 name（显示名与现状一致，不改机器标识）
+    c.execute("UPDATE rigs SET display_name=name WHERE display_name IS NULL OR display_name=''")
+    c.commit()
+    # users.must_change_pwd：部署预置的管理员首次登录时强制改密
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN must_change_pwd INTEGER DEFAULT 0")
+        c.commit()
+        print("[db] users 表新增 must_change_pwd 列")
+    except Exception:  # noqa: BLE001
+        pass  # 列已存在
+
+
+# ---------------------------------------------------------------- 用户与会话
+
+PBKDF2_ROUNDS = 200_000
+SESSION_TTL = 7 * 86400          # 中控 Web 会话 7 天
+LOGIN_MAX_FAIL = 5               # 连错 5 次锁 10 分钟
+LOGIN_LOCK_SEC = 600
+RESERVED_USERNAMES = {"admin", "root", "system", "administrator", "superuser"}
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_\u4e00-\u9fa5]{3,24}$")
+
+
+def hash_password(password, salt_hex=None):
+    """PBKDF2-HMAC-SHA256，200k 轮，随机 16 字节盐。返回 (hash_hex, salt_hex)。"""
+    salt = salt_hex or os.urandom(16).hex()
+    dk = hashlib.pbkdf2_hmac("sha256", str(password).encode("utf-8"),
+                             bytes.fromhex(salt), PBKDF2_ROUNDS)
+    return dk.hex(), salt
+
+
+def verify_password(password, pwd_hash, pwd_salt):
+    """恒时比较校验密码。任何异常都视为失败。"""
+    try:
+        calc, _ = hash_password(password, pwd_salt)
+        return hmac.compare_digest(calc, str(pwd_hash or ""))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def validate_username(name, allow_reserved=False):
+    """返回 (ok, err)。用户名 3~24 位，字母/数字/下划线/中文；拒绝保留词。
+
+    allow_reserved=True 时跳过保留词检查 —— 仅供「预置/创建管理员」使用。
+    保留词（admin/root/...）本意是防止普通用户冒充管理员，但管理员账号的权限
+    来自 users.is_admin 字段而不是用户名，所以管理员自己用 admin 是安全的；
+    反过来说，若这里不放行，生产环境永远无法用 admin 作为首个管理员。
+    """
+    name = str(name or "").strip()
+    if not name:
+        return False, "用户名不能为空"
+    if not USERNAME_RE.match(name):
+        return False, "用户名需 3~24 位，只能用字母、数字、下划线或中文"
+    if not allow_reserved and name.lower() in RESERVED_USERNAMES:
+        return False, "该用户名为系统保留，请换一个"
+    return True, ""
+
+
+def validate_password(pwd):
+    """返回 (ok, err)。至少 6 位。"""
+    pwd = str(pwd or "")
+    if len(pwd) < 6:
+        return False, "密码至少 6 位"
+    if len(pwd) > 128:
+        return False, "密码过长（最多 128 位）"
+    return True, ""
+
+
+def create_session(user_id, ua="", ip=""):
+    """创建 Web 会话，返回 token。"""
+    tok = secrets.token_hex(32)
+    now = time.time()
+    c = db()
+    with _db_lock:
+        c.execute("INSERT INTO sessions(token,user_id,created_at,expires_at,ua,ip) "
+                  "VALUES(?,?,?,?,?,?)",
+                  (tok, user_id, now, now + SESSION_TTL, str(ua or "")[:200], str(ip or "")[:64]))
+        c.commit()
+    return tok
+
+
+def drop_session(tok):
+    if not tok:
+        return
+    c = db()
+    with _db_lock:
+        c.execute("DELETE FROM sessions WHERE token=?", (tok,))
+        c.commit()
+
+
+def user_by_name(username):
+    return db().execute("SELECT * FROM users WHERE username=?", (str(username),)).fetchone()
+
+
+def user_by_id(uid):
+    return db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+
+
+def user_public(row):
+    """对外的用户对象（绝不含 pwd_hash / pwd_salt）。"""
+    if row is None:
+        return None
+    return {"id": row["id"], "username": row["username"],
+            "is_admin": bool(row["is_admin"]), "status": row["status"],
+            "must_change_pwd": bool(_row_must_change(row)),
+            "created_at": row["created_at"], "last_login_at": row["last_login_at"]}
+
+
+def _row_must_change(row):
+    """读 users.must_change_pwd（兼容迁移前的老行，列不存在时视为 0）。"""
+    if row is None:
+        return False
+    try:
+        return int(row["must_change_pwd"] or 0)
+    except (IndexError, KeyError):
+        return 0
+
+
+def login_fail_check(key):
+    """检查是否被锁。返回剩余秒数（0 = 未锁）。"""
+    row = db().execute("SELECT * FROM login_fail WHERE key=?", (key,)).fetchone()
+    if row and (row["locked_until"] or 0) > time.time():
+        return int(row["locked_until"] - time.time())
+    return 0
+
+
+def login_fail_record(key):
+    """累加失败次数；超阈值则锁定。"""
+    c = db()
+    now = time.time()
+    with _db_lock:
+        row = c.execute("SELECT * FROM login_fail WHERE key=?", (key,)).fetchone()
+        if row is None:
+            c.execute("INSERT INTO login_fail(key,fails,locked_until,last_fail) VALUES(?,?,?,?)",
+                      (key, 1, 0.0, now))
+        else:
+            fails = int(row["fails"] or 0) + 1
+            locked = now + LOGIN_LOCK_SEC if fails >= LOGIN_MAX_FAIL else 0.0
+            c.execute("UPDATE login_fail SET fails=?, locked_until=?, last_fail=? WHERE key=?",
+                      (fails, locked, now, key))
+        c.commit()
+
+
+def login_fail_clear(key):
+    c = db()
+    with _db_lock:
+        c.execute("DELETE FROM login_fail WHERE key=?", (key,))
+        c.commit()
+
+
+def auth_context(handler):
+    """解析请求身份，返回 {user_id, username, is_admin, via}。
+
+    via: 'user'  → X-User-Token 命中 sessions 表
+         'admin' → X-Admin-Token 等于 config.admin_token（逃生通道 / 老看板兼容）
+         None    → 未鉴权
+    """
+    tok = handler.headers.get("X-User-Token") or ""
+    if tok:
+        row = db().execute(
+            "SELECT u.id, u.username, u.is_admin, u.status, s.expires_at "
+            "FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token=?",
+            (tok,)).fetchone()
+        if row:
+            if row["status"] != "active":
+                return {"user_id": 0, "username": "", "is_admin": False, "via": None}
+            if (row["expires_at"] or 0) < time.time():
+                drop_session(tok)
+                return {"user_id": 0, "username": "", "is_admin": False, "via": None}
+            return {"user_id": row["id"], "username": row["username"],
+                    "is_admin": bool(row["is_admin"]), "via": "user"}
+    if _admin_token and handler.headers.get("X-Admin-Token") == _admin_token:
+        return {"user_id": 0, "username": "admin", "is_admin": True, "via": "admin"}
+    return {"user_id": 0, "username": "", "is_admin": False, "via": None}
+
+
+def require_user(auth):
+    """鉴权门槛：未登录返回 False。"""
+    return bool(auth and auth.get("via"))
+
+
+def visible_rig_names(auth):
+    """当前身份可见的矿机 name 列表。
+
+    这是数据隔离的唯一落点——所有读写 rig 的接口都必须经过它。
+
+    可见性规则：
+      · admin    → 全部矿机（含未绑定的无主矿机）
+      · 普通用户 → **仅自己名下**的矿机
+
+    无主矿机（owner_id=0）只对 admin 可见，不对普通用户可见。
+    这既保证了「无主矿机可以直接接入中控」（接入 = 允许上报，
+    不受归属限制），又守住了 D5「不支持多用户只读共享」——
+    若让无主矿机对所有普通用户可见，就等于开了只读共享的口子。
+
+    归属的产生方式：矿机端首次登录（/api/rig_login）自动绑定，
+    绑定后该矿机立刻从 admin 的公共视图转入该用户的私有集合。
+    """
+    c = db()
+    if auth.get("is_admin"):
+        return [r["name"] for r in c.execute("SELECT name FROM rigs ORDER BY name")]
+    uid = auth.get("user_id") or 0
+    if not uid:
+        return []
+    return [r["name"] for r in
+            c.execute("SELECT name FROM rigs WHERE owner_id=? ORDER BY name", (uid,))]
+
+
+def rig_visible(auth, rig):
+    """单台矿机是否对当前身份可见（规则同 visible_rig_names）。"""
+    if not rig:
+        return False
+    if auth.get("is_admin"):
+        return db().execute("SELECT 1 FROM rigs WHERE name=?", (rig,)).fetchone() is not None
+    uid = auth.get("user_id") or 0
+    if not uid:
+        return False
+    return db().execute("SELECT 1 FROM rigs WHERE name=? AND owner_id=?",
+                        (rig, uid)).fetchone() is not None
+
+
+def rig_owner_name(uid):
+    if not uid:
+        return ""
+    row = user_by_id(uid)
+    return row["username"] if row else ""
+
+
+_audit_lock = threading.Lock()
+
+
+def log_owner_change(rig, old_user, new_user, action, note=""):
+    """写归属变更审计。
+
+    ★ 用独立的 _audit_lock，而不是 _db_lock：
+      _db_lock 是非可重入的普通锁，若调用方已持有它再进这里 → 死锁。
+      审计写入与业务写入互不冲突（不同表），用独立锁更安全。
+    """
+    c = db()
+    with _audit_lock:
+        c.execute("INSERT INTO rig_owner_log(rig,old_user,new_user,action,note,ts) "
+                  "VALUES(?,?,?,?,?,?)",
+                  (rig, old_user, new_user, action, note, time.time()))
+        c.commit()
+
+
+def _clear_cfg_admin_password():
+    """预置完成后清掉 config.json 里的明文 admin_password。
+
+    config.json 是 bind-mount :ro 挂进容器的，改它需要宿主机有写权限；
+    失败不影响功能（只是明文多留一会儿），所以只打印提示不抛错。
+    """
+    try:
+        if not _cfg.get("admin_password"):
+            return
+        cfg2 = dict(_cfg)
+        cfg2.pop("admin_password", None)
+        tmp = CONFIG_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg2, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, CONFIG_FILE)
+        _cfg.pop("admin_password", None)
+        print("[auth] 已清除 config.json 中的明文初始密码", flush=True)
+    except Exception as e:  # noqa: BLE001
+        print("[auth] 清除 config.json 明文密码失败（不影响使用）: %s" % e, flush=True)
+
+
+def ensure_admin_user():
+    """D1：首次启动强制交互创建管理员。
+
+    优先级：
+    1. users 表已有 admin → 直接返回（不打扰）
+    2. 环境变量 ADMIN_USER / ADMIN_PASSWORD → 预置（Docker/systemd 部署用）
+    3. config.json 的 admin_user / admin_password → 预置（部署脚本写入，config.json 已是持久卷）
+    4. 有 TTY → 阻塞式交互输入用户名/密码（不回显，需二次确认）
+    5. 都没有 → 明确报错退出（绝不生成随机密码打印到日志）
+
+    预置出来的账号会带上 must_change_pwd=1 标记：
+    **首次登录时必须先改密**，改完才能进系统。
+    这样部署脚本可以用一个一次性的临时密码完成开箱，
+    而不必把长期有效的密码明文留在 config.json 里。
+    """
+    row = db().execute("SELECT id FROM users WHERE is_admin=1 LIMIT 1").fetchone()
+    if row:
+        return True
+    env_u = os.environ.get("ADMIN_USER") or ""
+    env_p = os.environ.get("ADMIN_PASSWORD") or ""
+    cfg_u = str(_cfg.get("admin_user") or "")
+    cfg_p = str(_cfg.get("admin_password") or "")
+    name = env_u or cfg_u
+    pwd = env_p or cfg_p
+    if name and pwd:
+        ok, err = validate_username(name, allow_reserved=True)
+        if not ok:
+            print("[auth] 预置管理员用户名不合法: %s" % err, flush=True)
+            return False
+        ok, err = validate_password(pwd)
+        if not ok:
+            print("[auth] 预置管理员密码不合法: %s" % err, flush=True)
+            return False
+        _insert_user(name, pwd, is_admin=1, must_change_pwd=1)
+        print("[auth] 已预置管理员账号: %s（首次登录须修改密码）" % name, flush=True)
+        # 预置完成后清掉 config.json 里的明文密码，避免长期留盘
+        _clear_cfg_admin_password()
+        return True
+    # 交互式
+    try:
+        if not sys.stdin or not sys.stdin.isatty():
+            print("[auth] ============================================================", flush=True)
+            print("[auth] 首次启动：必须创建管理员账号。", flush=True)
+            print("[auth] 当前环境无交互终端（Docker/systemd），请用以下任一方式预置：", flush=True)
+            print("[auth]   环境变量：ADMIN_USER=xxx ADMIN_PASSWORD=xxx", flush=True)
+            print("[auth]   配置文件：config.json 写入 admin_user / admin_password", flush=True)
+            print("[auth] ============================================================", flush=True)
+            return False
+    except Exception:  # noqa: BLE001
+        return False
+    print("[auth] ============================================================", flush=True)
+    print("[auth] 首次启动：创建管理员账号（这是唯一一次交互）", flush=True)
+    print("[auth] ============================================================", flush=True)
+    name = ""
+    while True:
+        try:
+            name = input("管理员用户名 [admin]: ").strip() or "admin"
+        except (EOFError, KeyboardInterrupt):
+            print("\n[auth] 已取消，服务端退出。", flush=True)
+            return False
+        ok, err = validate_username(name, allow_reserved=True)
+        if ok:
+            break
+        print("[auth] %s" % err, flush=True)
+    while True:
+        try:
+            import getpass
+            pwd = getpass.getpass("管理员密码 (至少 6 位，不回显): ")
+        except (EOFError, KeyboardInterrupt):
+            print("\n[auth] 已取消，服务端退出。", flush=True)
+            return False
+        ok, err = validate_password(pwd)
+        if not ok:
+            print("[auth] %s" % err, flush=True)
+            continue
+        try:
+            pwd2 = getpass.getpass("确认密码: ")
+        except (EOFError, KeyboardInterrupt):
+            print("\n[auth] 已取消，服务端退出。", flush=True)
+            return False
+        if pwd != pwd2:
+            print("[auth] 两次输入不一致，请重试。", flush=True)
+            continue
+        break
+    _insert_user(name, pwd, is_admin=1)
+    print("[auth] 管理员账号已创建: %s" % name, flush=True)
+    return True
+
+
+def _insert_user(username, password, is_admin=0, must_change_pwd=0):
+    h, s = hash_password(password)
+    c = db()
+    now = time.time()
+    with _db_lock:
+        c.execute("INSERT INTO users(username,pwd_hash,pwd_salt,is_admin,status,"
+                  "created_at,last_login_at,must_change_pwd) VALUES(?,?,?,?,?,?,?,?)",
+                  (username, h, s, 1 if is_admin else 0, "active", now, now,
+                   1 if must_change_pwd else 0))
+        c.commit()
+    return db().execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+
+
+def register_user(username, password):
+    """注册。返回 (ok, payload)。payload 含 token（注册后直接登录）。"""
+    if not _allow_register:
+        return False, {"ok": False, "error": "本中控已关闭注册，请联系管理员开号"}
+    ok, err = validate_username(username)
+    if not ok:
+        return False, {"ok": False, "error": err}
+    ok, err = validate_password(password)
+    if not ok:
+        return False, {"ok": False, "error": err}
+    if user_by_name(username) is not None:
+        return False, {"ok": False, "error": "用户名已存在"}
+    try:
+        row = _insert_user(username, password, is_admin=0)
+    except sqlite3.IntegrityError:
+        return False, {"ok": False, "error": "用户名已存在"}
+    tok = create_session(row["id"])
+    return True, {"ok": True, "token": tok, "user": user_public(row)}
+
+
+def login_user(username, password, ua="", ip=""):
+    """登录。返回 (ok, payload)。防爆破：用户名 + IP 双维度计数。"""
+    username = str(username or "").strip()
+    key_u = "u:" + username.lower()
+    key_i = "i:" + str(ip or "")
+    for k in (key_u, key_i):
+        left = login_fail_check(k)
+        if left:
+            return False, {"ok": False, "error": "登录失败次数过多，请 %d 秒后再试" % left}
+    row = user_by_name(username)
+    if row is None:
+        login_fail_record(key_u)
+        login_fail_record(key_i)
+        return False, {"ok": False, "error": "用户名或密码错误"}
+    if not verify_password(password, row["pwd_hash"], row["pwd_salt"]):
+        login_fail_record(key_u)
+        login_fail_record(key_i)
+        return False, {"ok": False, "error": "用户名或密码错误"}
+    if row["status"] != "active":
+        return False, {"ok": False, "error": "该账号已被禁用"}
+    login_fail_clear(key_u)
+    login_fail_clear(key_i)
+    c = db()
+    # ★ 部署预置的管理员：首次登录必须改密。此时不发 token，
+    #   要求先用旧密码换新密码，换完才能真正进系统。
+    if _row_must_change(row):
+        with _db_lock:
+            c.execute("UPDATE users SET last_login_at=? WHERE id=?",
+                      (time.time(), row["id"]))
+            c.commit()
+        return True, {"ok": True, "need_password_change": True,
+                      "user": user_public(user_by_id(row["id"]))}
+    with _db_lock:
+        c.execute("UPDATE users SET last_login_at=? WHERE id=?", (time.time(), row["id"]))
+        c.commit()
+    tok = create_session(row["id"], ua, ip)
+    fresh = user_by_id(row["id"])
+    return True, {"ok": True, "token": tok, "user": user_public(fresh)}
+
+
+def change_password(user_id, old_password, new_password):
+    """修改密码。返回 (ok, payload)。
+
+    用于「部署预置账号首次登录强制改密」与「用户自助改密」。
+    校验旧密码 → 写新哈希 → 清 must_change_pwd 标记。
+    """
+    row = db().execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if row is None:
+        return False, {"ok": False, "error": "用户不存在"}
+    if not verify_password(old_password, row["pwd_hash"], row["pwd_salt"]):
+        return False, {"ok": False, "error": "原密码不正确"}
+    ok, err = validate_password(new_password)
+    if not ok:
+        return False, {"ok": False, "error": err}
+    if new_password == old_password:
+        return False, {"ok": False, "error": "新密码不能与原密码相同"}
+    h, s = hash_password(new_password)
+    with _db_lock:
+        db().execute("UPDATE users SET pwd_hash=?, pwd_salt=?, "
+                     "must_change_pwd=0 WHERE id=?", (h, s, user_id))
+        db().commit()
+    print("[auth] 用户 %s 已修改密码" % row["username"], flush=True)
+    return True, {"ok": True, "username": row["username"]}
 
 
 # ---------------------------------------------------------------- 工具
@@ -641,16 +1150,20 @@ def wallet_stub(row):
             "pending": True, "rewards": None, "paid": None}
 
 
-def unique_wallets(with_pool=False):
+def unique_wallets(with_pool=False, rig_names=None):
     """_wallet_map 快照去重：同一钱包可能被多台矿机共用（各自上报同一地址）。
 
     with_pool=False：按 (币种,钱包) 去重——打款/收益是链上的，同一钱包只能算一次。
     with_pool=True ：按 (币种,钱包,所在池) 去重——待付余额按池各算各的，
                      同一钱包挂在两个池上是两份独立余额，合成一条会把其中一个池抹掉。
+    rig_names：限定只统计这些矿机的钱包（多用户隔离用）。None = 不限（admin 视角）。
     """
+    allow = set(rig_names) if rig_names is not None else None
     with _wallet_lock:
         seen, out = set(), []
-        for v in _wallet_map.values():
+        for rig, v in _wallet_map.items():
+            if allow is not None and rig not in allow:
+                continue
             w = (v.get("wallet") or "").strip()
             if not w:
                 continue
@@ -734,10 +1247,16 @@ def handle_report(payload):
         return {"ok": False, "error": "缺少 name/token"}
     c = db()
     row = c.execute("SELECT token, game_mode FROM rigs WHERE name=?", (name,)).fetchone()
+    # display_name：中控里的展示名（可改）。rig_name/name 是机器身份，不可变。
+    # 客户端改显示名后随 report 同步；这里只更新展示名，绝不动 name。
+    disp = str(payload.get("display_name") or "").strip()
+    if disp and len(disp) > 64:
+        disp = disp[:64]
     if row is None:
-        c.execute("INSERT INTO rigs(name,token,first_seen,last_seen,status,wallet) VALUES(?,?,?,?,?,?)",
+        c.execute("INSERT INTO rigs(name,token,first_seen,last_seen,status,wallet,display_name) "
+                  "VALUES(?,?,?,?,?,?,?)",
                   (name, token, time.time(), time.time(), "online",
-                   str(payload.get("wallet") or "").strip()))
+                   str(payload.get("wallet") or "").strip(), disp or name))
         c.commit()
         add_alert(name, "info", "rig_new", "新矿机接入：%s" % name)
         print("[rig] 新矿机注册：%s" % name)
@@ -799,13 +1318,15 @@ def handle_report(payload):
             "UPDATE rigs SET last_seen=?, last_report=?, status='online', offline_since=NULL, game_mode=?, "
             "wallet=CASE WHEN ?<>'' THEN ? ELSE wallet END, "
             "client_version=CASE WHEN ?<>'' THEN ? ELSE client_version END, "
-            "pool_url=CASE WHEN ?<>'' THEN ? ELSE pool_url END WHERE name=?",
+            "pool_url=CASE WHEN ?<>'' THEN ? ELSE pool_url END, "
+            "display_name=CASE WHEN ?<>'' THEN ? ELSE display_name END WHERE name=?",
             (time.time(), json.dumps(snap, ensure_ascii=False), gm,
              str(payload.get("wallet") or "").strip(), str(payload.get("wallet") or "").strip(),
              str(payload.get("client_version") or "").strip(),
              str(payload.get("client_version") or "").strip(),
              str(payload.get("pool_url") or "").strip(),
-             str(payload.get("pool_url") or "").strip(), name))
+             str(payload.get("pool_url") or "").strip(),
+             disp, disp, name))
         c.execute(
             "INSERT INTO samples(rig,ts,ths,power,temp,fan,accepted,rejected,uptime,pool) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (name, time.time(), ths, power, temp, fan, accepted, rejected, uptime,
@@ -869,8 +1390,16 @@ def sweep_loop():
 
 # ---------------------------------------------------------------- 聚合
 
-def fleet_payload():
+def fleet_payload(auth=None):
+    """全群聚合。auth 传入时按可见矿机集合过滤（多用户隔离）。
+
+    auth=None 表示 admin 视角（不过滤）——只在内部调用使用。
+    """
     c = db()
+    if auth is not None:
+        vis = set(visible_rig_names(auth))
+    else:
+        vis = None
     rigs = c.execute("SELECT * FROM rigs ORDER BY name").fetchall()
     out = []
     total = {"online": 0, "ths": 0.0, "power": 0.0, "income": 0.0, "gamemode": 0,
@@ -879,6 +1408,8 @@ def fleet_payload():
              "cny_rate": rate_cny(),
              "client_latest": client_release().get("version") or ""}
     for r in rigs:
+        if vis is not None and r["name"] not in vis:
+            continue
         snap = json.loads(r["last_report"]) if r["last_report"] else None
         online = r["status"] == "online"
         r_gm = bool(r["game_mode"]) if "game_mode" in r.keys() else False
@@ -896,6 +1427,9 @@ def fleet_payload():
             (r["name"], time.time() - 12 * 3600)).fetchall()
         out.append({
             "name": r["name"], "status": r["status"],
+            "display_name": (r["display_name"] if "display_name" in r.keys() else "") or r["name"],
+            "owner_id": (r["owner_id"] if "owner_id" in r.keys() else 0) or 0,
+            "owner_name": rig_owner_name((r["owner_id"] if "owner_id" in r.keys() else 0) or 0),
             "last_seen": r["last_seen"],
             "offline_since": r["offline_since"],
             "game_mode": r_gm,
@@ -909,8 +1443,9 @@ def fleet_payload():
     # 同一钱包可能被多台矿机共用（各自上报同一地址），两套口径各算各的：
     #   打款/收益是链上的 → 按 (币种,钱包) 去重，否则按矿机台数翻倍
     #   待付余额是分池的   → 按 (币种,钱包,池) 去重，同一钱包挂两池各算各的
-    _uniq = unique_wallets()
-    _uniq_pool = unique_wallets(with_pool=True)
+    # 多用户隔离：钱包聚合只能统计可见矿机的（D3：自己名下矿机的钱包明文展示）
+    _uniq = unique_wallets(rig_names=vis)
+    _uniq_pool = unique_wallets(with_pool=True, rig_names=vis)
     _coins = {v["coin"].upper() for v in _uniq}
     # 注意 total 可能为 None（所在池不提供余额查询）——按 0 计入合计，
     # 具体每台的「待付不可查」由 rig.wallet.unpaid_supported 标注
@@ -1319,20 +1854,41 @@ def kernel_payload():
             "cached": cached}
 
 
-def daily_payload(days=30):
-    """按天收益估算（按矿池分组）：日内样本均值算力 × 收益率。"""
+def daily_payload(days=30, auth=None):
+    """按天收益估算（按矿池分组）：日内样本均值算力 × 收益率。
+
+    auth 传入时按可见矿机集合过滤 samples 与钱包打款记录（多用户隔离）。
+    """
     c = db()
     since = time.time() - days * 86400
-    try:
-        rows = c.execute(
-            "SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, pool, AVG(ths) aths, MAX(temp) mtemp "
-            "FROM samples WHERE ts>? AND ths>0 GROUP BY dkey,rig,pool ORDER BY dkey DESC",
-            (since,)).fetchall()
-    except sqlite3.OperationalError:  # 老库无 pool 列
-        rows = c.execute(
-            "SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, '' pool, AVG(ths) aths, MAX(temp) mtemp "
-            "FROM samples WHERE ts>? AND ths>0 GROUP BY dkey,rig ORDER BY dkey DESC",
-            (since,)).fetchall()
+    vis = set(visible_rig_names(auth)) if auth is not None else None
+    if vis is not None and not vis:
+        # 没有可见矿机 → 直接返回空，绝不能回落到全表
+        return {"ok": True, "days": []}
+    if vis is None:
+        try:
+            rows = c.execute(
+                "SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, pool, AVG(ths) aths, MAX(temp) mtemp "
+                "FROM samples WHERE ts>? AND ths>0 GROUP BY dkey,rig,pool ORDER BY dkey DESC",
+                (since,)).fetchall()
+        except sqlite3.OperationalError:  # 老库无 pool 列
+            rows = c.execute(
+                "SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, '' pool, AVG(ths) aths, MAX(temp) mtemp "
+                "FROM samples WHERE ts>? AND ths>0 GROUP BY dkey,rig ORDER BY dkey DESC",
+                (since,)).fetchall()
+    else:
+        qs = ",".join("?" * len(vis))
+        args = [since] + list(vis)
+        try:
+            rows = c.execute(
+                "SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, pool, AVG(ths) aths, MAX(temp) mtemp "
+                "FROM samples WHERE ts>? AND ths>0 AND rig IN (%s) GROUP BY dkey,rig,pool ORDER BY dkey DESC" % qs,
+                args).fetchall()
+        except sqlite3.OperationalError:  # 老库无 pool 列
+            rows = c.execute(
+                "SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, '' pool, AVG(ths) aths, MAX(temp) mtemp "
+                "FROM samples WHERE ts>? AND ths>0 AND rig IN (%s) GROUP BY dkey,rig ORDER BY dkey DESC" % qs,
+                args).fetchall()
     days_out = {}
     avg = rate_avg()
     for x in rows:
@@ -1350,7 +1906,7 @@ def daily_payload(days=30):
         d["usdt"] += usdt
     # 矿池打款记录（真实收入，攒起付线批量到账）按天并入（钱包去重，防共用地址翻倍）
     paid_days = {}
-    for v in unique_wallets():
+    for v in unique_wallets(rig_names=vis):
         p = v.get("paid") or {}
         for day, amt in (p.get("days") or {}).items():
             paid_days[day] = round(paid_days.get(day, 0.0) + amt, 6)
@@ -1385,6 +1941,15 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def parse_request(self):
+        """每个请求开始时重置请求体缓存。
+
+        keep-alive 下同一个 handler 实例会被复用，若不重置，
+        第二个请求会拿到第一个请求的 body。
+        """
+        self._raw_body = None
+        return BaseHTTPRequestHandler.parse_request(self)
+
     def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         if isinstance(body, str):
             body = body.encode("utf-8")
@@ -1393,7 +1958,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type,X-Rig-Token,X-Admin-Token")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type,X-Rig-Token,X-Admin-Token,X-User-Token")
         self.send_header("Access-Control-Expose-Headers", "X-Kernel-Version,X-Kernel-Name,X-Kernel-Key")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
         for hk, hv in (extra or {}).items():
@@ -1449,10 +2014,27 @@ class Handler(BaseHTTPRequestHandler):
         except (BrokenPipeError, ConnectionResetError):
             pass
 
+    def _read_raw_body(self):
+        """读取并缓存请求体。
+
+        HTTP/1.1 keep-alive 下，若某个 POST 路由没有消费请求体，
+        残留字节会与下一个请求行拼接（如 '{}' + 'POST /x HTTP/1.1'），
+        导致 BaseHTTPRequestHandler 解析出非法 method 并回 501 HTML 错误页。
+        因此请求体必须被完整读取且只读取一次（此处缓存）。
+        """
+        if getattr(self, "_raw_body", None) is None:
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                n = 0
+            self._raw_body = self.rfile.read(n) if n > 0 else b""
+        return self._raw_body
+
     def _read_json(self):
         try:
-            n = int(self.headers.get("Content-Length") or 0)
-            raw = self.rfile.read(n) if n else b"{}"
+            raw = self._read_raw_body()
+            if not raw:
+                return {}
             return json.loads(raw.decode("utf-8"))
         except Exception as e:  # noqa: BLE001
             return {"__error__": str(e)}
@@ -1463,10 +2045,27 @@ class Handler(BaseHTTPRequestHandler):
     def _admin_auth(self):
         return self.headers.get("X-Admin-Token") or ""
 
+    def _client_ip(self):
+        try:
+            return self.client_address[0] if self.client_address else ""
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _auth(self):
+        """解析身份。未登录返回 None。"""
+        a = auth_context(self)
+        return a if require_user(a) else None
+
+    def _deny(self, msg="需要登录"):
+        return self._json({"ok": False, "error": msg}, 401)
+
     def do_OPTIONS(self):
+        self._read_raw_body()
         self._send(200, "{}")
 
     def do_GET(self):
+        # 同样消费可能存在的请求体，避免 keep-alive 连接串包
+        self._read_raw_body()
         u = urlparse(self.path)
         p, q = u.path, parse_qs(u.query)
         if p == "/api/poll":
@@ -1485,23 +2084,48 @@ class Handler(BaseHTTPRequestHandler):
                 c.commit()
             return self._json({"ok": True, "commands": [dict(x) for x in pend]})
 
+        if p == "/api/auth/me":
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            c = db()
+            if auth.get("via") == "admin" and not auth.get("user_id"):
+                # 逃生通道（X-Admin-Token）：没有真实用户身份
+                return self._json({"ok": True, "user": {"id": 0, "username": "admin",
+                                                        "is_admin": True, "status": "active",
+                                                        "created_at": None, "last_login_at": None},
+                                   "rig_count": len(visible_rig_names(auth)), "via": "admin"})
+            row = user_by_id(auth["user_id"])
+            n = c.execute("SELECT COUNT(*) n FROM rigs WHERE owner_id=?", (auth["user_id"],)).fetchone()["n"]
+            return self._json({"ok": True, "user": user_public(row), "rig_count": n, "via": "user"})
+
         if p == "/api/fleet":
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
-            return self._json(fleet_payload())
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            return self._json(fleet_payload(auth))
 
         if p == "/api/history":
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
+            auth = self._auth()
+            if not auth:
+                return self._deny()
             rig = (q.get("rig") or [""])[0]
+            if not rig_visible(auth, rig):
+                return self._json({"ok": False, "error": "无权查看该矿机"}, 403)
             hours = min(168, max(1, int((q.get("hours") or ["24"])[0])))
             return self._json(history_payload(rig, hours))
 
         if p == "/api/alerts":
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
-            c = db()
-            rows = c.execute("SELECT * FROM alerts ORDER BY id DESC LIMIT 80").fetchall()
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            vis = visible_rig_names(auth)
+            if not vis:
+                return self._json({"ok": True, "alerts": []})
+            qs = ",".join("?" * len(vis))
+            rows = db().execute(
+                "SELECT * FROM alerts WHERE rig IN (%s) ORDER BY id DESC LIMIT 80" % qs,
+                list(vis)).fetchall()
             return self._json({"ok": True, "alerts": [dict(x) for x in rows]})
 
         if p == "/api/health":
@@ -1510,21 +2134,72 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "rigs": n, "now": now_cn()})
 
         if p == "/api/daily":
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
+            auth = self._auth()
+            if not auth:
+                return self._deny()
             days = min(90, max(1, int((q.get("days") or ["30"])[0])))
-            return self._json(daily_payload(days))
+            return self._json(daily_payload(days, auth))
 
         if p == "/api/kernels":
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
+            auth = self._auth()
+            if not auth:
+                return self._deny()
             return self._json(kernel_payload())
 
         if p == "/api/pools":
             # 矿池目录：看板「更换矿池」选择用（静态参考数据，无敏感信息）
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
+            auth = self._auth()
+            if not auth:
+                return self._deny()
             return self._json(pool_catalog_payload())
+
+        if p == "/api/users":
+            # 仅管理员：用户列表 + 各自矿机数
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            if not auth.get("is_admin"):
+                return self._json({"ok": False, "error": "仅管理员可查看"}, 403)
+            c = db()
+            rows = c.execute(
+                "SELECT u.id,u.username,u.is_admin,u.status,u.created_at,u.last_login_at,"
+                " (SELECT COUNT(*) FROM rigs r WHERE r.owner_id=u.id) rig_count "
+                "FROM users u ORDER BY u.id").fetchall()
+            return self._json({"ok": True, "users": [user_public(r) | {"rig_count": r["rig_count"]}
+                                                     for r in rows]})
+
+        if p == "/api/rigs":
+            # 矿机列表（按权限过滤）
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            c = db()
+            vis = visible_rig_names(auth)
+            if not vis:
+                return self._json({"ok": True, "rigs": []})
+            qs = ",".join("?" * len(vis))
+            rows = c.execute(
+                "SELECT name,display_name,owner_id,status,last_seen,client_version,pool_url "
+                "FROM rigs WHERE name IN (%s) ORDER BY name" % qs, list(vis)).fetchall()
+            return self._json({"ok": True, "rigs": [
+                {"name": r["name"],
+                 "display_name": (r["display_name"] or r["name"]),
+                 "owner_id": r["owner_id"] or 0,
+                 "owner_name": rig_owner_name(r["owner_id"] or 0),
+                 "status": r["status"], "last_seen": r["last_seen"],
+                 "client_version": r["client_version"] or "",
+                 "pool_url": r["pool_url"] or ""} for r in rows]})
+
+        if p == "/api/owner_log":
+            # 仅管理员：归属变更审计
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            if not auth.get("is_admin"):
+                return self._json({"ok": False, "error": "仅管理员可查看"}, 403)
+            rows = db().execute(
+                "SELECT * FROM rig_owner_log ORDER BY id DESC LIMIT 200").fetchall()
+            return self._json({"ok": True, "log": [dict(x) for x in rows]})
 
         if p == "/api/downloads":
             # 公开：机主拿到链接就能下，清单里没有敏感信息
@@ -1636,6 +2311,190 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         u = urlparse(self.path)
         p = u.path
+
+        # ★ 统一消费请求体：keep-alive 连接上若残留未读字节，
+        #   会与下一个请求行拼接，产生非法 method 并回 501 HTML。
+        #   这里先把 body 读进缓存，各路由再用 _read_json() 取（只解析一次）。
+        self._read_raw_body()
+
+        # ---------------- 账号体系 ----------------
+        if p == "/api/auth/register":
+            body = self._read_json()
+            if "__error__" in body:
+                return self._json({"ok": False, "error": body["__error__"]}, 400)
+            ok, out = register_user(body.get("username"), body.get("password"))
+            return self._json(out, 200 if ok else 400)
+
+        if p == "/api/auth/login":
+            body = self._read_json()
+            if "__error__" in body:
+                return self._json({"ok": False, "error": body["__error__"]}, 400)
+            ok, out = login_user(body.get("username"), body.get("password"),
+                                 self.headers.get("User-Agent") or "", self._client_ip())
+            return self._json(out, 200 if ok else 401)
+
+        if p == "/api/auth/change_password":
+            # 修改密码。两种调用方式：
+            #  ① 首次登录强制改密：未登录态，带 username + old_password + new_password
+            #  ② 已登录用户自助改密：带 X-User-Token + old_password + new_password
+            body = self._read_json()
+            if "__error__" in body:
+                return self._json({"ok": False, "error": body["__error__"]}, 400)
+            old_pwd = str(body.get("old_password") or "")
+            new_pwd = str(body.get("new_password") or "")
+            tok = self.headers.get("X-User-Token") or ""
+            username = str(body.get("username") or "").strip()
+            uid = 0
+            if tok:
+                row = db().execute("SELECT user_id FROM sessions WHERE token=?",
+                                   (tok,)).fetchone()
+                if row is None:
+                    return self._deny()
+                uid = int(row["user_id"])
+            elif username:
+                # 未登录态：必须能通过旧密码证明身份
+                urow = user_by_name(username)
+                if urow is None or not verify_password(old_pwd, urow["pwd_hash"],
+                                                      urow["pwd_salt"]):
+                    return self._json({"ok": False, "error": "原密码不正确"}, 401)
+                uid = int(urow["id"])
+            else:
+                return self._json({"ok": False, "error": "缺少身份信息"}, 401)
+            ok, out = change_password(uid, old_pwd, new_pwd)
+            return self._json(out, 200 if ok else 400)
+
+        if p == "/api/auth/logout":
+            tok = self.headers.get("X-User-Token") or ""
+            if not tok:
+                return self._json({"ok": True})
+            drop_session(tok)
+            return self._json({"ok": True})
+
+        if p == "/api/rig_login":
+            # 矿机端登录 + 首次自动挂载（R2/R3）
+            # 机器身份：X-Rig-Token + rig name；人的身份：用户名密码
+            body = self._read_json()
+            if "__error__" in body:
+                return self._json({"ok": False, "error": body["__error__"]}, 400)
+            rig = str(body.get("rig") or body.get("name") or "").strip()
+            tk = self._rig_auth()
+            if not rig or not tk:
+                return self._json({"ok": False, "error": "缺少机器标识或接入码"}, 400)
+            err = rig_auth_check(rig, tk, "矿机端登录")
+            if err:
+                return self._json({"ok": False, "error": err}, 401)
+            username = str(body.get("username") or "").strip()
+            pwd = str(body.get("password") or "")
+            key_u = "u:" + username.lower()
+            left = login_fail_check(key_u)
+            if left:
+                return self._json({"ok": False, "error": "登录失败次数过多，请 %d 秒后再试" % left}, 429)
+            row = user_by_name(username)
+            if row is None or not verify_password(pwd, row["pwd_hash"], row["pwd_salt"]):
+                login_fail_record(key_u)
+                return self._json({"ok": False, "error": "用户名或密码错误"}, 401)
+            if row["status"] != "active":
+                return self._json({"ok": False, "error": "该账号已被禁用"}, 403)
+            login_fail_clear(key_u)
+            uid = row["id"]
+            # ★ 部署预置账号：首次登录必须先改密。此时不放行 token，
+            #   也不做归属绑定 —— 改完密重新登录才走下面的绑定流程。
+            if _row_must_change(row):
+                return self._json({"ok": True, "need_password_change": True,
+                                   "user": user_public(user_by_id(uid))})
+            c = db()
+            r = c.execute("SELECT owner_id, display_name FROM rigs WHERE name=?", (rig,)).fetchone()
+            cur_owner = int((r["owner_id"] if r else 0) or 0)
+            newly_bound = False
+            if cur_owner == 0:
+                # ★ 无主矿机 → 矿机端首次登录自动绑定（唯一的归属产生方式）
+                with _db_lock:
+                    c.execute("UPDATE rigs SET owner_id=?, bound_at=? WHERE name=?",
+                              (uid, time.time(), rig))
+                    c.commit()
+                log_owner_change(rig, 0, uid, "bind", "矿机端首次登录自动绑定")
+                print("[auth] 矿机 %s 已绑定到用户 %s" % (rig, username), flush=True)
+                newly_bound = True
+            elif cur_owner == uid:
+                pass  # 幂等：已属自己，直接放行
+            else:
+                # 已属他人 → 拒绝。归属不再由管理员手工指定/强制转移，
+                # 必须先由原属主在矿机端解绑（变回无主），才能被新用户绑定。
+                owner_name = rig_owner_name(cur_owner) or ("用户#%d" % cur_owner)
+                return self._json({"ok": False,
+                                   "error": "该矿机已绑定账号「%s」，"
+                                            "请先在原账号解绑后再登录"
+                                            % owner_name}, 409)
+            tok = create_session(uid, self.headers.get("User-Agent") or "", self._client_ip())
+            fresh = user_by_id(uid)
+            rr = c.execute("SELECT name,display_name,owner_id FROM rigs WHERE name=?", (rig,)).fetchone()
+            return self._json({"ok": True, "token": tok, "user": user_public(fresh),
+                               "bound": newly_bound,
+                               "rig": {"name": rig,
+                                       "display_name": (rr["display_name"] or rig) if rr else rig,
+                                       "owner_id": uid}})
+
+        if p == "/api/rig_logout":
+            # 客户端登出：只清本地登录态，不解绑机器（矿机仍归原账号）
+            tok = self.headers.get("X-User-Token") or ""
+            if tok:
+                drop_session(tok)
+            return self._json({"ok": True})
+
+        if p == "/api/rig_rename":
+            # 远程改中控中的名字（R6）—— 只改 display_name，不动机器标识 name
+            body = self._read_json()
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            rig = str(body.get("rig") or "").strip()
+            disp = str(body.get("display_name") or "").strip()
+            if not rig:
+                return self._json({"ok": False, "error": "缺少 rig"}, 400)
+            if not disp:
+                return self._json({"ok": False, "error": "显示名不能为空"}, 400)
+            if len(disp) > 32:
+                return self._json({"ok": False, "error": "显示名最长 32 个字符"}, 400)
+            if any(ord(ch) < 32 for ch in disp):
+                return self._json({"ok": False, "error": "显示名含非法控制字符"}, 400)
+            if not rig_visible(auth, rig):
+                return self._json({"ok": False, "error": "无权修改该矿机"}, 403)
+            c = db()
+            old = c.execute("SELECT display_name FROM rigs WHERE name=?", (rig,)).fetchone()
+            old_disp = (old["display_name"] or rig) if old else rig
+            with _db_lock:
+                c.execute("UPDATE rigs SET display_name=? WHERE name=?", (disp, rig))
+                c.commit()
+            # 下发命令让矿机端同步改名（D6：不弹窗，静默保存）
+            with _db_lock:
+                c.execute("INSERT INTO commands(rig,cmd,arg,created) VALUES(?,?,?,?)",
+                          (rig, "set_display_name", json.dumps({"display_name": disp}), time.time()))
+                c.commit()
+            print("[cmd] 中控改名 %s: %s → %s（by %s）" % (rig, old_disp, disp, auth.get("username")), flush=True)
+            return self._json({"ok": True, "rig": rig, "display_name": disp, "old": old_disp})
+
+        if p == "/api/rig_unbind":
+            # 管理员解绑（或 owner 自解绑）
+            body = self._read_json()
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            rig = str(body.get("rig") or "").strip()
+            if not rig:
+                return self._json({"ok": False, "error": "缺少 rig"}, 400)
+            c = db()
+            r = c.execute("SELECT owner_id FROM rigs WHERE name=?", (rig,)).fetchone()
+            if r is None:
+                return self._json({"ok": False, "error": "矿机不存在：%s" % rig}, 400)
+            old = int(r["owner_id"] or 0)
+            if not auth.get("is_admin") and old != (auth.get("user_id") or 0):
+                return self._json({"ok": False, "error": "无权解绑该矿机"}, 403)
+            with _db_lock:
+                c.execute("UPDATE rigs SET owner_id=0, bound_at=NULL WHERE name=?", (rig,))
+                c.commit()
+            log_owner_change(rig, old, 0, "unbind", "解绑")
+            return self._json({"ok": True, "rig": rig})
+
         if p == "/api/report":
             body = self._read_json()
             if "__error__" in body:
@@ -1661,11 +2520,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/rig_reset_token":
             body = self._read_json()
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
+            auth = self._auth()
+            if not auth:
+                return self._deny()
             rig = str(body.get("rig") or "").strip()
             if not rig:
                 return self._json({"ok": False, "error": "缺少 rig"}, 400)
+            if not rig_visible(auth, rig):
+                return self._json({"ok": False, "error": "无权操作该矿机"}, 403)
             c = db()
             row = c.execute("SELECT name FROM rigs WHERE name=?", (rig,)).fetchone()
             if row is None:
@@ -1679,15 +2541,17 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "rig": rig})
 
         if p == "/api/kernel/check":
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
+            auth = self._auth()
+            if not auth:
+                return self._deny()
             kernel_check()
             return self._json(kernel_payload())
 
         if p == "/api/command":
             body = self._read_json()
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
+            auth = self._auth()
+            if not auth:
+                return self._deny()
             rig, cmd = body.get("rig") or "", body.get("cmd") or ""
             arg = body.get("arg") or {}
             if not isinstance(arg, dict):
@@ -1696,7 +2560,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": "rig/cmd 必填"}, 400)
             if cmd not in {"restart_miner", "start_miner", "stop_miner",
                            "gamemode_on", "gamemode_off", "update_kernel",
-                           "update_client", "set_pool", "set_kernel"}:
+                           "update_client", "set_pool", "set_kernel",
+                           "set_display_name"}:
                 return self._json({"ok": False, "error": "未知命令: %s" % cmd}, 400)
             if cmd == "set_pool":
                 if not valid_pool_url(str(arg.get("pool_url") or "")):
@@ -1706,14 +2571,21 @@ class Handler(BaseHTTPRequestHandler):
                 if str(arg.get("kernel") or "") not in KERNEL_KEYS:
                     return self._json({"ok": False, "error": "内核必须是 %s 之一"
                                        % " / ".join(KERNEL_KEYS)}, 400)
+            elif cmd == "set_display_name":
+                disp = str(arg.get("display_name") or "").strip()
+                if not disp or len(disp) > 32:
+                    return self._json({"ok": False, "error": "显示名需 1~32 字符"}, 400)
             c = db()
-            names = [r["name"] for r in c.execute("SELECT name FROM rigs").fetchall()]
+            # 广播只作用于当前身份可见的矿机（D5：严格单一归属，user 只能命令自己的）
+            names = visible_rig_names(auth)
             if rig == "*":
                 targets = names
             else:
-                if rig not in names:
-                    return self._json({"ok": False, "error": "矿机不存在：%s" % rig}, 400)
+                if not rig_visible(auth, rig):
+                    return self._json({"ok": False, "error": "矿机不存在或无权操作：%s" % rig}, 403)
                 targets = [rig]
+            if not targets:
+                return self._json({"ok": False, "error": "没有可操作的矿机"}, 400)
             with _db_lock:
                 for t in targets:
                     c.execute("INSERT INTO commands(rig,cmd,arg,created) VALUES(?,?,?,?)",
@@ -1724,9 +2596,13 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/alerts/resolve":
             body = self._read_json()
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
+            auth = self._auth()
+            if not auth:
+                return self._deny()
             c = db()
+            row = c.execute("SELECT rig FROM alerts WHERE id=?", (body.get("id"),)).fetchone()
+            if row is not None and not rig_visible(auth, row["rig"]):
+                return self._json({"ok": False, "error": "无权操作该告警"}, 403)
             c.execute("UPDATE alerts SET resolved=1, resolved_ts=? WHERE id=?",
                       (time.time(), body.get("id")))
             c.commit()
@@ -1734,11 +2610,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if p == "/api/wallet":
             body = self._read_json()
-            if self._admin_auth() != _admin_token:
-                return self._json({"ok": False, "error": "admin token required"}, 401)
+            auth = self._auth()
+            if not auth:
+                return self._deny()
             rig = (body.get("rig") or "").strip()
             if not rig:
                 return self._json({"ok": False, "error": "rig 必填"}, 400)
+            if not rig_visible(auth, rig):
+                return self._json({"ok": False, "error": "无权操作该矿机"}, 403)
             return self._json(wallet_set(rig, str(body.get("wallet") or "")))
 
         return self._send(404, "Not Found", "text/plain; charset=utf-8")
@@ -1747,6 +2626,10 @@ class Handler(BaseHTTPRequestHandler):
 def main():
     _load_config()
     init_db()
+    # D1：首次启动强制交互创建管理员（已有 admin 则跳过，不打扰）
+    if not ensure_admin_user():
+        print("[auth] 未创建管理员账号，服务端拒绝启动。", flush=True)
+        sys.exit(2)
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     load_kernel_meta()
     threading.Thread(target=sweep_loop, daemon=True).start()
@@ -1756,7 +2639,7 @@ def main():
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
     srv.daemon_threads = True
     print("[server] 扒皮矿工中控已启动  http://0.0.0.0:%d" % PORT, flush=True)
-    print("[server] admin_token=%s  （看板首次打开时输入一次）" % _admin_token, flush=True)
+    print("[server] 管理员逃生通道 admin_token=%s（仅应急用）" % _admin_token, flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:
