@@ -80,7 +80,8 @@ header{position:sticky;top:0;z-index:60;
 .chip b{color:var(--text);font-weight:650}
 
 /* ---------- KPI ---------- */
-.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin:16px 0 12px}
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin:16px 0 12px}
+.kpis.kb{grid-template-columns:repeat(2,1fr)}
 .kpi{background:linear-gradient(180deg,#fff,#fdfefe);border:1px solid var(--line);border-radius:var(--radius);
   padding:16px 18px 14px;box-shadow:var(--shadow);position:relative;overflow:hidden;
   transition:transform .18s ease,box-shadow .18s ease}
@@ -164,12 +165,11 @@ header{position:sticky;top:0;z-index:60;
 .rig.offline{opacity:.66;filter:saturate(.75)}
 .rig.offline:hover{transform:none;box-shadow:var(--shadow)}
 .rig-hd{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:nowrap}
-.rig-hd .nm{font-weight:700;font-size:15px;letter-spacing:-.2px;min-width:0;
+.rig-hd .nm{font-weight:700;font-size:15px;letter-spacing:-.2px;flex:1 1 auto;min-width:0;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rig-hd .dot{width:8px;height:8px;border-radius:50%;flex:none}
 .rig-hd .dot.on{background:var(--down);box-shadow:0 0 0 3px rgba(16,185,129,.16)}
 .rig-hd .dot.off{background:var(--up);box-shadow:0 0 0 3px rgba(239,68,68,.16)}
-.rig-hd .sp{flex:1}
 .rig-hd .btn{flex:none}
 /* 徽标行（标题第二行）：min-height 兜底两行高度，保证各卡片标题区高度一致 */
 .rig-tags{display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px;
@@ -250,6 +250,14 @@ header{position:sticky;top:0;z-index:60;
 .toolbar .chk input{flex:none;min-width:0}
 .toolbar .chk input{accent-color:var(--brand)}
 .toolbar .sp{flex:1}
+/* 按钱包分组的组头条 */
+.wgroup-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 2px 8px;padding:8px 14px;
+  background:linear-gradient(90deg,#f0faf5,#fff 70%);border:1px solid var(--line);border-radius:10px;
+  font-size:13px;color:var(--text)}
+.wgroup-hd:first-child{margin-top:2px}
+.wgroup-hd .wm{font-weight:600;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-size:13px;letter-spacing:.2px;color:var(--text);user-select:all}
+.wgroup-hd .dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--up)}
 .toolbar .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
 
 /* ---------- 按天 / 内核行 ---------- */
@@ -294,11 +302,18 @@ footer b{color:var(--muted);font-weight:600}
   .toolbar{position:static}}
 @media(max-width:720px){
   .kpis{grid-template-columns:1fr 1fr;gap:10px}
-  .kpi{padding:13px 14px}.kpi .v{font-size:20px}.kpi .v small{margin-left:3px}
+  .kpi{padding:12px 13px}.kpi .v{font-size:20px}.kpi .v small{margin-left:3px}
+  /* 副文案两行截断：窄卡里单行 ellipsis 会把「昨日 7.9853 · 近7日」等关键信息砍没 */
+  .kpi .m{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;
+    -webkit-box-orient:vertical;overflow:hidden;line-height:1.35}
+  .hd{padding:10px 14px}
+  #btnRefresh{padding:8px 13px;font-size:12.5px}
   .rigs{grid-template-columns:1fr}
   .hero h1{font-size:20px}
   .wrap{padding:0 14px 56px}
   .hd{padding:11px 14px;gap:10px}.hd .sub{display:none}
+  /* 收起 spacer：窄屏让「↻ 刷新」与状态同行，不再独占一行 */
+  .hd .grow{display:none}
   .metrics{grid-template-columns:1fr 1fr}
   .toolbar{gap:7px;padding:10px}
   .toolbar input{min-width:0;flex:1 1 100%}
@@ -320,7 +335,7 @@ footer b{color:var(--muted);font-weight:600}
   .rig-ft .info{flex:1 1 100%}
   .dayrow .dhd{flex-wrap:wrap;row-gap:4px}
   .dl-grid{grid-template-columns:1fr}
-  .kpi .m{white-space:normal;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical}
+  /* 注：.kpi .m 两行 clamp 已在本块前部统一声明，此处勿再覆盖 */
   footer{font-size:11px}
 }
 @media(max-width:430px){
@@ -380,14 +395,12 @@ footer b{color:var(--muted);font-weight:600}
       <div class="kpi v"><div class="k"><span class="ic">🔌</span>总功耗</div><div class="v" id="k3">—</div><div class="m" id="k3m">&nbsp;</div></div>
       <div class="kpi d"><div class="k"><span class="ic">💰</span>预计日收益</div><div class="v" id="k4">—</div><div class="m" id="k4m">&nbsp;</div></div>
       <div class="kpi d"><div class="k"><span class="ic">🏦</span>矿池未支付</div><div class="v" id="kw">—</div><div class="m" id="kwm">矿池钱包真实余额</div></div>
+      <div class="kpi"><div class="k"><span class="ic">🎮</span>GPU / 状态</div><div class="v" id="k8">—</div><div class="m" id="k8m">工作中 / 待机 / 离线</div></div>
     </div>
 
-    <div class="kpis">
+    <div class="kpis kb">
       <div class="kpi d"><div class="k"><span class="ic">🪙</span>今日实际收入</div><div class="v" id="kt">—</div><div class="m" id="ktm">矿池钱包今日挖矿收益（币数）</div></div>
-      <div class="kpi d"><div class="k"><span class="ic">📅</span>昨日实收</div><div class="v" id="k5">—</div><div class="m" id="k5m">矿池真实打款 · 攒满起付线批量到账</div></div>
-      <div class="kpi d"><div class="k"><span class="ic">📈</span>近 7 天实收</div><div class="v" id="k6">—</div><div class="m" id="k6m">矿池真实打款合计</div></div>
       <div class="kpi d"><div class="k"><span class="ic">📊</span>近 30 天实收</div><div class="v" id="k7">—</div><div class="m" id="k7m">矿池真实打款合计</div></div>
-      <div class="kpi"><div class="k"><span class="ic">🎮</span>GPU / 状态</div><div class="v" id="k8">—</div><div class="m" id="k8m">工作中 / 待机 / 离线</div></div>
     </div>
 
     <div class="toolbar">
@@ -395,6 +408,7 @@ footer b{color:var(--muted);font-weight:600}
       <select id="fKernel" onchange="render()"><option value="">全部内核</option></select>
       <select id="fPool" onchange="render()"><option value="">全部矿池</option></select>
       <label class="chk"><input type="checkbox" id="fOffline" onchange="render()">只看离线</label>
+      <label class="chk" title="按钱包地址聚合矿机，地址中间段脱敏显示"><input type="checkbox" id="fGroup" onchange="render()">按钱包分组</label>
       <span class="sep"></span>
       <button class="btn mini" onclick="selAll(1)">全选</button>
       <button class="btn mini" onclick="selAll(0)">全不选</button>
@@ -575,14 +589,26 @@ function clientVerTag(r) {
   return `<span class="tag" style="background:#e8f7ee;color:#1a7f47" title="客户端已是中控最新版">客户端 ${esc(ver)}</span>`;
 }
 
+/* 内核展示名 -> catalog 短名（srbminer/bzminer/wildrig）。
+   catalog 以短名为键；曾漏掉 wildrig 分支，导致 WildRig 机器被算进
+   srbminer 的版本比较/升级名单（0.51.7 比 3.8.0 误报「可更新」）。 */
+function kernelShort(kn) {
+  const s = kn || '';
+  if (/wildrig/i.test(s)) return 'wildrig';
+  if (/bz/i.test(s)) return 'bzminer';
+  return 'srbminer';
+}
+
 function kernelTag(r) {
   const s = r.snapshot || {};
   const cat = (S.kernels && S.kernels.catalog) || {};
-  const key = /bz/i.test(s.kernel || '') ? 'bzminer' : 'srbminer';
+  const key = kernelShort(s.kernel);
   const item = cat[key];
-  const cur = s.kernel_ver || '';
+  // 版本号归一化：容忍 "v0.51.7" / "0.51.7 " 之类差异，只比数字部分
+  const norm = v => (v || '').replace(/^v/i, '').trim();
+  const cur = norm(s.kernel_ver);
   if (!cur) return '<span class="tag" style="background:#fff3d6;color:#8a5b00" title="旧版客户端不上报内核版本。在「客户端下载」换新版 BaPiMiner.exe，或点「更新内核」后即可正常显示">内核版本未知 · 建议升级</span>';
-  if (item && item.version && item.version !== cur) {
+  if (item && norm(item.version) && norm(item.version) !== cur) {
     return `<span class="tag" style="background:#fff3d6;color:#8a5b00" title="中控最新 ${esc(item.version)}，可下「更新内核」升级">内核 ${esc(cur)} ↑可更新</span>`;
   }
   return `<span class="tag" style="background:#e8f7ee;color:#1a7f47" title="内核已是最新">内核 ${esc(cur)}</span>`;
@@ -610,11 +636,10 @@ function rigCard(r) {
       <input type="checkbox" class="sel-cb" ${SEL.has(r.name) ? 'checked' : ''} onclick="event.stopPropagation();selRig('${esc(r.name)}', this.checked)" title="选中用于批量操作">
       <span class="dot ${on ? 'on' : 'off'}"></span>
       <span class="nm">${esc(r.name)}</span>
-      <span class="sp"></span>
       <button class="btn mini ${gm ? 'gm-on' : ''}" onclick="toggleGM('${esc(r.name)}', ${gm})"
-        title="${gm ? '关闭游戏模式：立即恢复挖矿' : '开启游戏模式：矿机端检测到有人用电脑时自动停挖让卡'}">${gm ? '🎮 让卡中' : '🎮 游戏模式'}</button>
-      <button class="btn mini danger" onclick="restart('${esc(r.name)}')">↻ 重启矿工</button>
-      <button class="btn mini" onclick="resetToken('${esc(r.name)}')" title="重装/更换客户端后矿机端报 401 时使用：重置后矿机端下次连接自动重新绑定">🔑 重置码</button>
+        title="${gm ? '关闭游戏模式：立即恢复挖矿' : '开启游戏模式：矿机端检测到有人用电脑时自动停挖让卡'}">${gm ? '🎮 让卡中' : '🎮 模式'}</button>
+      <button class="btn mini danger" onclick="restart('${esc(r.name)}')">↻ 重启</button>
+      <button class="btn mini" onclick="resetToken('${esc(r.name)}')" title="重装/更换客户端后矿机端报 401 时使用：重置后矿机端下次连接自动重新绑定">🔑 重置</button>
       <button class="btn mini" onclick="openCfg('${esc(r.name)}')" title="更换矿池 / 切换挖矿内核（矿机端自动下载缺失内核并重启矿工）">⚙</button>
     </div>
     <div class="rig-tags">
@@ -632,9 +657,13 @@ function rigCard(r) {
     ${sparkline(r.history || [])}
     ${gpuChips ? `<div class="gpu-row">${gpuChips}</div>` : ''}
     <div class="rig-ft">
-      <span class="info">${on ? '心跳 ' + ago(r.last_seen) : '离线 ' + ago(r.last_seen)}${pool ? ' · ' + esc(pool.slice(0, 30)) : ''}${m0.error ? ' · ' + esc(m0.error) : ''}</span>
+      <span class="info">${on ? '心跳 ' + ago(r.last_seen) : '离线 ' + ago(r.last_seen)}${pool ? ' · <span style="color:var(--brand-ink);font-weight:600" title="' + esc(r.pool_url || m0.pool || '') + '">⛏ ' + esc(pool) + '</span>' : ''}${m0.error ? ' · ' + esc(m0.error) : ''}</span>
       ${s.income_cny_day ? `<span class="income">≈ ¥${num(s.income_cny_day, 0)}/天</span>` : ''}
-      ${r.wallet ? `<span class="income" style="background:#eef4ff" title="矿池钱包未支付余额（起付线 ${num(r.wallet.threshold, 2)} ${esc((r.wallet.coin || '').toUpperCase())}）${(r.wallet.rewards || {}).today ? ' · 今日收益 ' + num(r.wallet.rewards.today, 4) + ' ' + esc((r.wallet.coin || '').toUpperCase()) : ''}">🏦 ${num(r.wallet.total, 4)} ${esc((r.wallet.coin || '').toUpperCase())} · ${num(r.wallet.pct, 0)}%</span>` : ''}
+      ${r.wallet ? (r.wallet.pending
+        ? `<span class="income" style="background:#f3f4f6;color:var(--muted)" title="中控正在拉取该钱包的链上交易与矿池余额，稍后显示">🏦 拉取中</span>`
+        : r.wallet.unpaid_supported === false
+          ? `<span class="income" style="background:#f3f4f6;color:var(--muted)" title="当前矿池（${esc(r.wallet.pool_brand || '')}）不提供公开的余额查询接口，待付无法显示；链上实际到账不受影响">🏦 待付不可查</span>`
+          : `<span class="income" style="background:#eef4ff" title="矿池钱包未支付余额（起付线 ${num(r.wallet.threshold, 2)} ${esc((r.wallet.coin || '').toUpperCase())}）${(r.wallet.rewards || {}).today ? ' · 今日收益 ' + num(r.wallet.rewards.today, 4) + ' ' + esc((r.wallet.coin || '').toUpperCase()) : ''}">🏦 ${num(r.wallet.total, 4)} ${esc((r.wallet.coin || '').toUpperCase())} · ${num(r.wallet.pct, 0)}%</span>`) : ''}
     </div>
   </div>`;
 }
@@ -650,13 +679,66 @@ function fillSelect(id, values) {
   if (cur && Array.from(values).includes(cur)) el.value = cur;
 }
 
+// 钱包地址脱敏：保留前 8 位 + 后 6 位，中间固定 10 个 • （不管原地址多长）
+function maskWallet(a) {
+  const s = (a || '').trim();
+  if (!s) return '';
+  if (s.length <= 18) return s;
+  return s.slice(0, 8) + '••••••••••' + s.slice(-6);
+}
+
+// 矿机列表渲染：普通模式直接铺卡片；勾选「按钱包分组」后按钱包聚合，
+// 每组一个组头（脱敏地址 + 台数/在线/合计算力功耗 + 待付余额）+ 组内矿机卡片
+function renderRigs(list) {
+  if (!$('fGroup') || !$('fGroup').checked) return list.map(rigCard).join('');
+  const groups = new Map();
+  list.forEach(r => {
+    const w = (r.wallet && r.wallet.wallet) || '';
+    const k = w || '_none';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  });
+  const out = [];
+  for (const [k, rs] of groups) {
+    const ths = rs.reduce((a, r) => a + ((r.snapshot || {}).ths || 0), 0);
+    const pw = rs.reduce((a, r) => a + ((r.snapshot || {}).power || 0), 0);
+    const online = rs.filter(r => r.status === 'online').length;
+    const w0 = rs[0].wallet || {};
+    const coin = (w0.coin || 'prl').toUpperCase();
+    const brands = new Set(rs.map(r => (r.wallet || {}).pool_brand || ''));
+    const label = k === '_none' ? '（未设置钱包）' : esc(maskWallet(k));
+    const onlineDot = online === rs.length ? 'var(--up)' : online ? '#b26a00' : 'var(--down)';
+    out.push(`<div class="wgroup-hd"><span class="dot" style="background:${onlineDot}"></span>` +
+      `<span class="wm" title="${k === '_none' ? '' : esc(k)}">${label}</span>` +
+      `<span class="tag">${coin}</span>` +
+      `<span class="tag">${rs.length} 台 · ${online} 在线</span>` +
+      `<span class="tag">⛏ ${num(ths, 1)} TH/s · ${num(pw, 0)} W</span>` +
+      // 同钱包同池才显示待付余额（跨池余额不互通，混池显示会误导）
+      (w0.total != null && brands.size === 1
+        ? `<span class="tag" style="background:#eef4ff">🏦 ${num(w0.total, 4)} ${coin} · ${num(w0.pct, 0)}%</span>` : '') +
+      `</div>`);
+    out.push(...rs.map(rigCard));
+  }
+  return out.join('');
+}
+
 function render() {
   const f = S.fleet, t = f.total;
   $('k1').innerHTML = `${t.online}<small>/${f.rigs.length} 台</small>`;
   $('k1m').textContent = (f.rigs.length - t.online ? `${f.rigs.length - t.online} 台离线` : '全部在线')
     + (t.gamemode ? ` · 🎮 ${t.gamemode} 台让卡中` : '');
   $('k2').innerHTML = `${num(t.ths, 1)}<small>TH/s</small>`;
-  $('k2m').textContent = 'PRL pearlhash 实测';
+  // 口径跟着实际在用的矿池走：全在 Kryptex 就写 Kryptex，混池写「N 池实测」
+  const _pb = new Set();
+  f.rigs.forEach(r => {
+    const b = (r.wallet && r.wallet.pool_brand) || '';
+    if (b) _pb.add(b);
+  });
+  const _pn = { kryptex: 'Kryptex', pearlhash: 'PearlHash', luckypool: 'LuckyPool' };
+  const _pl = [..._pb];
+  $('k2m').textContent = 'PRL ' + (_pl.length === 0 ? '实测'
+    : _pl.length === 1 ? (_pn[_pl[0]] || _pl[0]) + ' 实测'
+      : `${_pl.length} 池实测`);
   $('k3').innerHTML = `${num(t.power / 1000, 2)}<small>kW</small>`;
   $('k3m').textContent = 'GPU 板功耗合计';
   $('k4').innerHTML = t.income ? `¥${num(t.income, 0)}` : '—';
@@ -667,18 +749,43 @@ function render() {
   if (WM.length) {
     const seen = new Set();
     const uniq = WM.filter(w => {
-      const k = (w.coin || '') + '|' + (w.wallet || '');
-      if (!w.wallet || seen.has(k)) return false;
+      if (!w.wallet) return false;
+      // 按「钱包 + 所在池」去重：同池只算一次；不同池的余额不互通，要各自计入
+      const k = (w.coin || '') + '|' + (w.wallet || '') + '|' + (w.pool_brand || '');
+      if (seen.has(k)) return false;
       seen.add(k);
       return true;
     });
     const coins = [...new Set(uniq.map(w => w.coin))];
-    const tot = uniq.reduce((s, w) => s + (w.total || 0), 0);
-    const uni = coins.length === 1 ? coins[0].toUpperCase() : 'MIX';
-    $('kw').innerHTML = `${num(tot, 4)}<small>${uni}</small>`;
-    const cf = uniq.reduce((s, w) => s + (w.confirmed || 0), 0);
-    const uc = uniq.reduce((s, w) => s + (w.unconfirmed || 0), 0);
-    $('kwm').textContent = `已确认 ${num(cf, 4)} · 确认中 ${num(uc, 4)}`;
+    // pending=钱包循环还没拉到数据（重启后首轮窗口），不给 0 误导
+    const ready = uniq.filter(w => w.total !== null && w.total !== undefined);
+    // 「该池不可查」不算拉取中——混池时别把 2 台珍珠hash 误报成 N 个钱包在拉
+    const pend = uniq.filter(w => w.pending === true).length;
+    if (!ready.length) {
+      // 全部钱包所在池都不提供余额 API 时，说清楚「不可查」而不是「拉取中」
+      const noApiAll = uniq.length && uniq.every(w => w.unpaid_supported === false);
+      const brands = [...new Set(uniq.map(w => w.pool_brand).filter(Boolean))];
+      $('kw').innerHTML = noApiAll ? '不可查' : '—';
+      $('kwm').textContent = noApiAll
+        ? `${brands.join('、') || '该池'} 无公开余额接口 · 收益自动打进钱包，明细看下方「实际收入」`
+        : '正在拉取链上数据…';
+    } else {
+      const tot = ready.reduce((s, w) => s + (w.total || 0), 0);
+      const uni = coins.length === 1 ? coins[0].toUpperCase() : 'MIX';
+      $('kw').innerHTML = `${num(tot, 4)}<small>${uni}</small>`;
+      const cf = ready.reduce((s, w) => s + (w.confirmed || 0), 0);
+      const uc = ready.reduce((s, w) => s + (w.unconfirmed || 0), 0);
+      // 各池待付小计：只在当前池显示真实余额；无公开 API 的池标「不可查」；
+      // 未在该池挖（没查过）的池不显示，避免「0.0000」误导
+      const wp = t.wallet_pools || {};
+      const up = Object.keys(wp).map(p => wp[p].unpaid_supported === true
+        ? `${esc(wp[p].name)} ${num(wp[p].unpaid || 0, 4)}`
+        : (wp[p].unpaid_supported === false ? `${esc(wp[p].name)}不可查` : null)
+      ).filter(Boolean);
+      $('kwm').textContent = `已确认 ${num(cf, 4)} · 确认中 ${num(uc, 4)}`
+        + (pend ? ` · ${pend} 个钱包拉取中` : '')
+        + (up.length ? ` · 待付 ${up.join(' / ')}` : '');
+    }
   } else {
     $('kw').innerHTML = '—';
     $('kwm').textContent = '等待矿机上报钱包地址';
@@ -688,7 +795,6 @@ function render() {
   const D = S.daily && S.daily.days ? S.daily.days : [];
   const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
   const past = D.filter(d => d.day < today);
-  const y = past[0] || null;
   const sumN = n => past.slice(0, n).reduce((s, d) => s + (d.cny || 0), 0);
   const P = t.wallet_paid || {};
   const RC = t.cny_rate || 0;
@@ -696,7 +802,7 @@ function render() {
   const realCard = (id, im, paid, est, unit) => {
     if (paid > 0) {
       $(id).innerHTML = `${num(paid, 4)}<small>${unit || 'PRL'}</small>`;
-      $(im).textContent = `实收 ${pcny(paid)} · 同期估算 ¥${num(est, 0)}`;
+      $(im).textContent = `实收 ${pcny(paid)}`;
     } else if (est > 0) {
       $(id).innerHTML = `≈ ¥${num(est, 0)}`;
       $(im).textContent = '暂无打款 · 按算力估算（攒满起付线才打款）';
@@ -705,22 +811,31 @@ function render() {
       $(im).textContent = '暂无收益数据';
     }
   };
-  realCard('k5', 'k5m', P.yesterday || 0, y ? y.cny : 0);
-  realCard('k6', 'k6m', P.d7 || 0, sumN(7));
   realCard('k7', 'k7m', P.d30 || 0, sumN(30));
 
-  // ---- 今日实际收入（矿池 reward-chart 按天真实收益，币数口径）
+  // ---- 今日实际收入（链上真实到账，按北京时间归日，币数口径）
   const R = t.wallet_reward || {};
   const rcoin = t.wallet_reward_coin || t.wallet_coin || 'PRL';
   const hasWallet = (f.rigs || []).some(r => r.wallet);
   const hasReward = (f.rigs || []).some(r => r.wallet && r.wallet.rewards);
+  const walletPending = (f.rigs || []).some(r => r.wallet && r.wallet.pending);
   const td = D.find(d => d.day === today);
   if (!hasWallet) {
     $('kt').innerHTML = '—';
     $('ktm').textContent = '等待矿机上报钱包地址';
+  } else if (walletPending && !(R.today || 0) > 0 && !hasReward) {
+    // 钱包早就上报了，只是中控首轮还没拉完链上数据——别说成「等待上报」
+    $('kt').innerHTML = '—';
+    $('ktm').textContent = '正在拉取链上数据…';
   } else if ((R.today || 0) > 0) {
     $('kt').innerHTML = `${num(R.today, 4)}<small>${esc(rcoin)}</small>`;
-    $('ktm').textContent = `≈ ¥${num(R.today * RC, 2)} · 昨日 ${num(R.yesterday || 0, 4)} · 近7日 ${num(R.d7 || 0, 4)} ${rcoin}`;
+    // 分池拆分（对齐 vminers 的 Kryptex/PearlHash/其它 口径）：多池时才显示
+    const wp = t.wallet_pools || {};
+    const parts = Object.keys(wp)
+      .filter(p => ((wp[p].reward || {}).today || 0) > 0)
+      .map(p => `${esc(wp[p].name)} ${num(wp[p].reward.today, 4)}`);
+    $('ktm').textContent = `≈ ¥${num(R.today * RC, 2)} · 昨日 ${num(R.yesterday || 0, 4)} · 近7日 ${num(R.d7 || 0, 4)} ${rcoin}`
+      + (parts.length > 1 ? `（${parts.join(' + ')}）` : '');
   } else if (td && td.cny > 0) {
     $('kt').innerHTML = `≈ ¥${num(td.cny, 0)}`;
     $('ktm').textContent = hasReward
@@ -759,7 +874,7 @@ function render() {
     if (pv && !(m0.pool || '').includes(pv)) return false;
     return true;
   });
-  $('rigs').innerHTML = shown.map(rigCard).join('');
+  $('rigs').innerHTML = renderRigs(shown);
   $('rigCount').textContent = `${shown.length} / ${f.rigs.length} 台`;
   $('empty').style.display = f.rigs.length ? 'none' : 'block';
   $('selCount').textContent = `已选 ${SEL.size} 台`;
@@ -775,7 +890,7 @@ function render() {
       const cached = (K.cached || []).filter(c => c.file.startsWith(name + '-'));
       const users = f.rigs.filter(r => {
         const s = r.snapshot || {};
-        return s.kernel_ver && (/bz/i.test(s.kernel || '') ? 'bzminer' : 'srbminer') === name;
+        return s.kernel_ver && kernelShort(s.kernel) === name;
       });
       const stale = users.filter(r => (r.snapshot || {}).kernel_ver !== (k.version || ''));
       const pct = users.length
@@ -795,12 +910,21 @@ function render() {
   }
 
   // ---- 按天明细（估算）
+  // 链上真实到账的分池拆分（days_pool: {日期: {池: 金额}}），今日行 tooltip 用
+  const daysPool = (((f.rigs[0] || {}).wallet || {}).rewards || {}).days_pool || {};
+  const poolTip = day => {
+    const dp = daysPool[day] || {};
+    const ks = Object.keys(dp);
+    return ks.length > 1
+      ? '分池到账：' + ks.map(p => `${p} ${num(dp[p], 4)}`).join(' · ')
+      : '链上真实到账（币数）';
+  };
   if (D.length) {
     $('dailyBox').style.display = 'block';
     $('dailyList').innerHTML = D.slice(0, 15).map(d => `
       <div class="dayrow">
         <div class="dhd"><span>${d.day}</span>
-          ${d.day === today && (t.wallet_reward || {}).today > 0 ? `<span class="inc" style="background:#eef4ff;color:#2563bf" title="矿池奖励曲线当日真实收益（币数）">实际 ${num(t.wallet_reward.today, 4)} ${esc(t.wallet_reward_coin || 'PRL')}</span>` : ''}
+          ${d.day === today && (t.wallet_reward || {}).today > 0 ? `<span class="inc" style="background:#eef4ff;color:#2563bf" title="${esc(poolTip(d.day))}">实际 ${num(t.wallet_reward.today, 4)} ${esc(t.wallet_reward_coin || 'PRL')}</span>` : ''}
           ${d.paid ? `<span class="inc" title="矿池真实打款到账">实收 ${num(d.paid, 4)} PRL · ¥${num(d.paid_cny, 2)}</span>` : ''}
           <span class="inc" style="background:transparent;color:var(--muted)" title="按当日算力×均价估算">≈ ¥${num(d.cny, 2)}</span>
           <span style="font-weight:400;color:var(--muted);font-size:11.5px">${d.rigs.length} 台有算力记录</span></div>
@@ -1114,7 +1238,7 @@ function renderDownloads(dl) {
     <div class="dl-card">
       <div class="dl-ic">${i.icon}</div>
       <div class="dl-main">
-        <div class="dl-t">${esc(i.title)}</div>
+        <div class="dl-t">${esc(i.title)}${i.version ? ` <span class="tag" style="background:#eef4ff;color:#2563eb;font-weight:600;vertical-align:middle" title="中控当前分发的版本号；矿机端自更新以 /api/client_latest 的版本与 SHA256 为准">v${esc(i.version)}</span>` : (i.key === 'exe' ? ' <span class="tag" style="background:#fff3d6;color:#8a5b00;vertical-align:middle" title="client_release.json 里没有版本号，请随安装包一并更新">版本未登记</span>' : '')}</div>
         <div class="dl-p">${esc(i.plat)}</div>
         <div class="dl-d">${esc(i.desc)}</div>
         <div class="dl-meta">

@@ -290,6 +290,86 @@ def unit_suite():
           cat["brands"][0]["nodes"][0]["url"] == "stratum+tcp://prl-hk.kryptex.network:7048")
     check("srv kernel keys", srv.KERNEL_KEYS == ("SRBMiner-MULTI", "BzMiner", "WildRig"))
 
+    # ---- 链上打款来源池识别（prlscan type_label）----
+    check("srv tx_pool", srv.tx_pool({"type_label": "PearlHash payout"})[0] == "pearlhash"
+          and srv.tx_pool({"type_label": "Kryptex payout"})[0] == "kryptex"
+          and srv.tx_pool({"type_label": "LuckyPool payout"})[0] == "luckypool"
+          and srv.tx_pool({"type_label": None})[0] == "other"
+          and srv.tx_pool({})[0] == "other")
+
+    # ---- 矿池品牌判定 ----
+    check("srv pool_brand_of", srv.pool_brand_of(POOL_A) == "kryptex"
+          and srv.pool_brand_of("stratum+tcp://pool.pearlhash.xyz:9000") == "pearlhash"
+          and srv.pool_brand_of("stratum+tcp://pool.example.com:3333") == ""
+          and srv.pool_brand_of("") == "")
+
+    # ---- 待付按品牌分发：无公开余额 API 的池明确返回不可查 ----
+    w = srv.wallet_fetch_one("prl", "prl1abc", "stratum+tcp://pool.pearlhash.xyz:9000")
+    check("srv unpaid pearlhash", w["unpaid_supported"] is False
+          and w["total"] is None and w["pool_brand"] == "pearlhash", w)
+
+    class _FakeResp(object):
+        def __init__(self, d):
+            self._d = d
+
+        def read(self):
+            return json.dumps(self._d).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    _orig = srv.urllib.request.urlopen
+    srv.urllib.request.urlopen = lambda req, timeout=20: _FakeResp(
+        {"total": 3.52, "confirmed": 3.0, "unconfirmed": 0.52,
+         "threshold": 10, "reached_pct": 35})
+    try:
+        w = srv.wallet_fetch_one("prl", "prl1abc", POOL_A)
+        check("srv unpaid kryptex", w["unpaid_supported"] is True
+              and abs(w["total"] - 3.52) < 1e-9 and w["pool_brand"] == "kryptex", w)
+    finally:
+        srv.urllib.request.urlopen = _orig
+
+    # ---- wallet_stub：钱包循环未就绪时的最小对象（pending=True）----
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute("CREATE TABLE rigs(name TEXT, wallet TEXT, pool_url TEXT, last_report TEXT)")
+    conn.execute("INSERT INTO rigs VALUES('r1','prl1abc',?, '')",
+                 ("stratum+tcp://pool.pearlhash.xyz:9000",))
+    row = conn.execute("SELECT * FROM rigs").fetchone()
+    st = srv.wallet_stub(row)
+    check("srv wallet_stub", bool(st) and st["pending"] is True
+          and st["total"] is None and st["wallet"] == "prl1abc", st)
+    conn.close()
+
+    # ---- chain_income_stats 按池归集（ pools / days_pool ）----
+    now = time.time()
+    TZ8 = 8 * 3600
+    today0 = int((now + TZ8) // 86400) * 86400 - TZ8
+
+    def _tx(day0, hh, grains, label):
+        import datetime as _dt
+        t = _dt.datetime.utcfromtimestamp(day0 + hh * 3600)
+        return {"time": t.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "received_grains": grains, "type_label": label}
+
+    txs = [_tx(today0, 2, int(1.0e8), "PearlHash payout"),
+           _tx(today0, 6, int(0.5e8), "Kryptex payout"),
+           _tx(today0 - 86400, 20, int(2.0e8), "LuckyPool payout")]
+    inc = srv.chain_income_stats(txs)
+    check("srv inc pools", abs(inc["today"] - 1.5) < 1e-6
+          and abs(inc["pools"]["pearlhash"]["today"] - 1.0) < 1e-6
+          and abs(inc["pools"]["kryptex"]["today"] - 0.5) < 1e-6
+          and abs(inc["pools"]["luckypool"]["yesterday"] - 2.0) < 1e-6
+          and inc["pools"]["pearlhash"]["name"] == "PearlHash", inc["pools"])
+    day = time.strftime("%Y-%m-%d", time.gmtime(today0 + TZ8))
+    dp = inc["days_pool"].get(day) or {}
+    check("srv inc days_pool", abs(dp.get("pearlhash", 0) - 1.0) < 1e-6
+          and abs(dp.get("kryptex", 0) - 0.5) < 1e-6, dp)
+
 
 POOL_A = "stratum+tcp://prl-hk.kryptex.network:7048"
 POOL_B = "stratum+tcp://cn.pearl.k1pool.com:3360"

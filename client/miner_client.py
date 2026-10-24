@@ -34,7 +34,7 @@ CONFIG_FILE = os.path.join(BASE, "client_config.json")
 LOG_FILE = os.path.join(BASE, "client.log")
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.12.0.3"
+CLIENT_VERSION = "1.12.0.4"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 子进程静默启动
@@ -914,12 +914,30 @@ def parse_gpu_rates(data, n):
 def parse_miner(api_type, data):
     m = {"ths": 0.0, "accepted": 0, "rejected": 0, "uptime": None, "algo": None, "pool": None}
     m["ths"] = _best_hashrate(data)
+    # ---- WildRig 0.51.x 专段（线上实测 API 结构）：
+    #   results.shares_good   标量——有效份额总数（唯一可信口径）
+    #   results.shares_accepted/rejected/ignored  按矿池连接下标的数组；
+    #   不少池（如 pearlhash）不回 ACK，accepted 数组恒 0，若与 shares_good 相加会双计数。
+    #   故：有效只取 shares_good，拒绝取 shares_rejected 数组合计。与下方通用遍历不重叠。
+    res = data.get("results") if isinstance(data, dict) else None
+    if isinstance(res, dict):
+        g = res.get("shares_good")
+        if isinstance(g, (int, float)) and not isinstance(g, bool):
+            m["accepted"] += int(g)
+        for rk in ("shares_rejected", "shares_bad"):
+            rv = res.get(rk)
+            if isinstance(rv, list):
+                m["rejected"] += sum(int(x) for x in rv
+                                     if isinstance(x, (int, float)) and not isinstance(x, bool))
+            elif isinstance(rv, (int, float)) and not isinstance(rv, bool):
+                m["rejected"] += int(rv)
+    # ---- 通用遍历（SRBMiner shares.accepted / BzMiner devices[].accepted 等格式）
     for _path, k, v in _walk(data):
         kl = k.lower()
         pl = _path.lower()
-        if isinstance(v, (int, float)):
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
             if ("accepted" in kl and "share" in kl) or kl == "accepted" \
-                    or (kl == "good" and "share" in pl):   # wildrig: shares.good
+                    or (kl == "good" and "share" in pl):   # wildrig 旧猜：shares.good
                 m["accepted"] += int(v)
             elif "rejected" in kl or (kl == "bad" and "share" in pl):
                 m["rejected"] += int(v)
@@ -3261,6 +3279,33 @@ def selftest():
     gr = parse_gpu_rates(fake_real, 2)
     assert abs(gr[0] - 210.5) < 0.01 and abs(gr[1] - 211.2) < 0.01, gr
     print("[parse hashrate] OK 总量 %.1f TH/s（最长窗口），每卡 %s" % (rr["ths"], gr))
+
+    # 7b) WildRig 0.51.x 真实 API 结构（线上实测快照，勿凭记忆改字段名）：
+    #     results.shares_good 标量 = 有效份额；shares_accepted/rejected 是按连接下标的数组
+    fake_wr = {
+        "id": "", "worker_id": "rig01", "version": "0.51.7", "kind": "opencl",
+        "ua": "WildRig/0.51.7W", "algo": "pearlhash", "donate_level": 0.0,
+        "uptime": 30700,
+        "hashrate": {"total": [137902240282313, 137953604194653, 137931017461396]},
+        "hwmon": {"busID": [2], "temp": [75], "fan": [-1], "power": [149]},
+        "results": {"diff_current": 0, "shares_good": 119,
+                    "shares_accepted": [0], "shares_rejected": [0], "shares_ignored": [0],
+                    "shares_total": 119, "avg_time": 257, "hashes_total": 0,
+                    "best": [0] * 10, "error_log": []},
+        "connection": {"pool": "pool.pearlhash.xyz:9000", "uptime": 30699,
+                       "ping": 304, "failures": 0, "error_log": []},
+    }
+    rw = parse_miner("wildrig", fake_wr)
+    assert rw["accepted"] == 119 and rw["rejected"] == 0, rw
+    assert 137.0 < rw["ths"] < 139.0 and rw["uptime"] == 30700, rw
+    assert rw["algo"] == "pearlhash" and rw["pool"] == "pool.pearlhash.xyz:9000", rw
+    print("[parse wildrig] OK 有效 %d / 拒绝 %d，%.1f TH/s" % (rw["accepted"], rw["rejected"], rw["ths"]))
+    # 多连接拒绝数要累加（数组口径）
+    fake_wr2 = json.loads(json.dumps(fake_wr))
+    fake_wr2["results"]["shares_rejected"] = [3, 1]
+    rw2 = parse_miner("wildrig", fake_wr2)
+    assert rw2["rejected"] == 4 and rw2["accepted"] == 119, rw2
+    print("[parse wildrig] OK 拒绝数组合计 %d" % rw2["rejected"])
 
     # 8) 内核版本落地
     ver_dir = os.path.join(BASE, "_fake_ver")

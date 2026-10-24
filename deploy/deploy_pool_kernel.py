@@ -18,7 +18,7 @@ HOST, PORT, USER, PW = "116.169.217.29", 22, "root", os.environ.get("MINRIGS_SSH
 LOCAL_SRV = r"C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs\server"
 LOCAL_EXE = r"C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs\client\dist\BaPiMiner.exe"
 STAMP = sys.argv[1] if len(sys.argv) > 1 else "20261024-pool"
-CLIENT_VER = "1.12.0.0"
+CLIENT_VER = "1.12.0.3"
 
 cli = paramiko.SSHClient()
 cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -79,7 +79,7 @@ print(run("curl -s -H 'X-Admin-Token: %s' http://127.0.0.1:8099/api/pools | "
 print(run("curl -s http://127.0.0.1:8099/api/client_latest"))
 print(run("curl -s http://127.0.0.1:8099/api/downloads | python3 -c \""
           "import json,sys;d=json.load(sys.stdin);"
-          "[print('dl',i['file'],i['ready'],i['size'],i.get('version')) for i in d['items']]\""))
+          "[print('dl',i['name'],i['ready'],i['size'],i.get('version')) for i in d['items']]\""))
 
 print("=== 6. /api/fleet 结构（含 pool_url）===")
 print(run(

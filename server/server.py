@@ -389,21 +389,35 @@ def pool_coin(pool_url):
     return ""
 
 
-def wallet_fetch_one(coin, wallet):
-    url = "https://pool.kryptex.com/%s/api/v1/miner/balance/%s" % (coin, quote(wallet.strip()))
+def wallet_fetch_one(coin, wallet, pool_url=""):
+    """按 rig 当前所在矿池拉「未支付余额」。
+
+    pool_url 为空时按 Kryptex 兼容旧调用；该池没有公开余额 API 时返回
+    unpaid_supported=False（total=None）——看板标注「待付不可查」，
+    而不是把别的池（甚至已停更的旧池）数字冒充成当前池的待付。
+    """
+    brand = pool_brand_of(pool_url) or ("kryptex" if not pool_url else "")
+    base = {"coin": coin, "pool_brand": brand, "ts": time.time()}
+    tpl = POOL_BALANCE_API.get(brand)
+    if not tpl:
+        base.update({"unpaid_supported": False, "total": None, "confirmed": None,
+                     "unconfirmed": None, "threshold": None, "pct": None,
+                     "last_active": 0})
+        return base
+    url = tpl.format(coin=coin, wallet=quote(wallet.strip()))
     req = urllib.request.Request(url, headers={"User-Agent": "bapiminer/1.0"})
     with urllib.request.urlopen(req, timeout=20) as r:
         d = json.loads(r.read().decode("utf-8"))
-    return {
-        "coin": coin,
+    base.update({
+        "unpaid_supported": True,
         "total": round(float(d.get("total") or 0), 6),
         "confirmed": round(float(d.get("confirmed") or 0), 6),
         "unconfirmed": round(float(d.get("unconfirmed") or 0), 6),
         "threshold": float(d.get("threshold") or 0),
         "pct": float(d.get("reached_pct") or 0),
         "last_active": d.get("last_active") or 0,
-        "ts": time.time(),
-    }
+    })
+    return base
 
 
 def _rig_coin(row):
@@ -418,6 +432,29 @@ def _rig_coin(row):
     except Exception:  # noqa: BLE001
         pass
     return "prl"
+
+
+def _rig_pool_url(row):
+    """rig 当前矿池地址：优先 rigs.pool_url 列（set_pool 即时生效），
+    其次上报快照里的 pool_url，最后退回矿工 API 回报的池地址。"""
+    try:
+        u = (row["pool_url"] if "pool_url" in row.keys() else "") or ""
+    except (IndexError, KeyError):
+        u = ""
+    if u.strip():
+        return u.strip()
+    try:
+        if row["last_report"]:
+            snap = json.loads(row["last_report"]) or {}
+            u = (snap.get("pool_url") or "").strip()
+            if u:
+                return u
+            miners = snap.get("miners") or []
+            if miners:
+                return (miners[0].get("pool") or "").strip()
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
 
 
 _EXPLORER_API = {"prl": "https://api.prlscan.com"}  # 币种 -> 链上浏览器 API 基址
@@ -446,19 +483,38 @@ def wallet_chain_txs(coin, wallet, pages=3):
     return items
 
 
+_TX_POOL_NAMES = (("pearlhash", "PearlHash"), ("kryptex", "Kryptex"),
+                  ("luckypool", "LuckyPool"))
+
+
+def tx_pool(t):
+    """链上打款交易的来源池：prlscan 的 type_label 形如「PearlHash payout」。
+    识别不出归「其它」（自定义池/直接转账）。"""
+    lab = (t.get("type_label") or "").lower() if isinstance(t, dict) else ""
+    for pid, name in _TX_POOL_NAMES:
+        if pid in lab:
+            return pid, name
+    return "other", "其它"
+
+
 def chain_income_stats(txs):
     """链上交易 -> 收入统计（按北京时间归集，收到即计入）。
 
-    返回 {total, h24, today, yesterday, d7, d30, count, days}：
+    返回 {total, h24, today, yesterday, d7, d30, count, days,
+          pools, days_pool}：
     today 即看板「今日实际收入」（钱包今天实际收到的币数，含矿池打款）；
-    yesterday/d7/d30 同口径；days 为 {北京日期: 金额}，供按天明细使用。
+    yesterday/d7/d30 同口径；days 为 {北京日期: 金额}；
+    pools 为 {池id: {name, total, h24, today, yesterday, d7, d30}}（按打款来源
+    池拆分——同一钱包在不同池挖，收益按池标注，参考 vminers 的着色口径）；
+    days_pool 为 {日期: {池id: 金额}}，供按天明细展示各池贡献。
     """
     now = time.time()
     TZ8 = 8 * 3600
     today0 = int((now + TZ8) // 86400) * 86400 - TZ8  # 北京时间当天零点
     y0 = today0 - 86400
     stats = {"total": 0.0, "h24": 0.0, "today": 0.0, "yesterday": 0.0,
-             "d7": 0.0, "d30": 0.0, "count": 0, "days": {}}
+             "d7": 0.0, "d30": 0.0, "count": 0, "days": {},
+             "pools": {}, "days_pool": {}}
     for t in txs or []:
         try:
             amt = float(t.get("received_grains") or 0) / 1e8
@@ -482,10 +538,33 @@ def chain_income_stats(txs):
             stats["d30"] += amt
         day = time.strftime("%Y-%m-%d", time.gmtime(ts + TZ8))
         stats["days"][day] = stats["days"].get(day, 0.0) + amt
+        # ---- 按打款来源池归集（vminers 式分池口径）----
+        pid, pname = tx_pool(t)
+        p = stats["pools"].setdefault(pid, {"name": pname, "total": 0.0, "h24": 0.0,
+                                            "today": 0.0, "yesterday": 0.0,
+                                            "d7": 0.0, "d30": 0.0})
+        p["total"] += amt
+        if ts > now - 86400:
+            p["h24"] += amt
+        if ts >= today0:
+            p["today"] += amt
+        if y0 <= ts < today0:
+            p["yesterday"] += amt
+        if ts > now - 7 * 86400:
+            p["d7"] += amt
+        if ts > now - 30 * 86400:
+            p["d30"] += amt
+        dp = stats["days_pool"].setdefault(day, {})
+        dp[pid] = dp.get(pid, 0.0) + amt
     # 累计过程不做四舍五入（每步 round 会累积误差），返回前统一取 6 位
     for k in ("total", "h24", "today", "yesterday", "d7", "d30"):
         stats[k] = round(stats[k], 6)
     stats["days"] = {d: round(v, 6) for d, v in stats["days"].items()}
+    stats["pools"] = {pid: {k: (round(v, 6) if isinstance(v, float) else v)
+                            for k, v in p.items()}
+                      for pid, p in stats["pools"].items()}
+    stats["days_pool"] = {d: {pid: round(v, 6) for pid, v in dp.items()}
+                          for d, dp in stats["days_pool"].items()}
     return stats
 
 
@@ -494,29 +573,41 @@ def wallet_loop():
     while True:
         try:
             rows = db().execute(
-                "SELECT name, wallet, last_report FROM rigs "
+                "SELECT name, wallet, pool_url, last_report FROM rigs "
                 "WHERE wallet IS NOT NULL AND wallet != ''").fetchall()
-            # 同一钱包可能被多台矿机共用：按 (币种,钱包) 只拉一次，再分发给各矿机
+            # 同一钱包可能被多台矿机共用，且这些矿机可能分处不同矿池：
+            # 待付余额按「钱包 + 所在池」分组，各拉各的（不同池余额不互通）。
+            # 只按钱包分组会拿任意一台的池去查所有台——可查池的余额因此永远拉不到。
             uniq = {}
             for r in rows:
                 coin = _rig_coin(r)
-                uniq.setdefault((coin, r["wallet"].strip()), []).append(r["name"])
+                brand = pool_brand_of(_rig_pool_url(r)) or ""
+                uniq.setdefault((coin, r["wallet"].strip(), brand), []).append(r["name"])
             got = {}
-            for (coin, wallet), names in uniq.items():
+            chain_cache = {}
+            for (coin, wallet, brand), names in uniq.items():
                 try:
-                    w = wallet_fetch_one(coin, wallet)
+                    purl = _rig_pool_url(next(r for r in rows if r["name"] == names[0]))
+                    w = wallet_fetch_one(coin, wallet, purl)
                     w["wallet"] = wallet
-                    try:
-                        inc = chain_income_stats(wallet_chain_txs(coin, wallet))
+                    # 链上收益/打款与池无关：同一钱包整轮只拉一次，多池共用
+                    if wallet not in chain_cache:
+                        try:
+                            chain_cache[wallet] = chain_income_stats(
+                                wallet_chain_txs(coin, wallet))
+                        except Exception as e:  # noqa: BLE001
+                            chain_cache[wallet] = None
+                            print("[wallet] %s 链上交易拉取失败: %s" % (wallet[:12], e), flush=True)
+                    inc = chain_cache.get(wallet)
+                    if inc:
                         w["paid"] = inc
                         w["rewards"] = {k: inc[k] for k in
-                                        ("today", "yesterday", "d7", "d30", "days")}
-                    except Exception as e:  # noqa: BLE001
-                        print("[wallet] %s 链上交易拉取失败: %s" % (wallet[:12], e), flush=True)
+                                        ("today", "yesterday", "d7", "d30",
+                                         "days", "pools", "days_pool")}
                     for n in names:
                         got[n] = dict(w)
                 except Exception as e:  # noqa: BLE001
-                    print("[wallet] %s 拉取失败: %s" % (wallet[:12], e), flush=True)
+                    print("[wallet] %s@%s 拉取失败: %s" % (wallet[:12], brand or "-", e), flush=True)
             if got:
                 with _wallet_lock:
                     _wallet_map = got
@@ -533,14 +624,42 @@ def wallet_for(rig):
         return dict(v) if v else None
 
 
-def unique_wallets():
-    """_wallet_map 快照按 (币种,钱包) 去重：同一钱包可能被多台矿机共用
-    （各自上报同一地址），聚合余额/打款/收益时必须去重，否则按矿机台数翻倍。"""
+def wallet_stub(row):
+    """钱包循环尚未拉到数据时，用 rigs.wallet 列给前端一个最小对象。
+
+    否则服务重启后/首轮拉取前 KPI 会误显示「等待矿机上报钱包地址」——
+    钱包其实早就上报了，只是中控还没来得及拉链上数据。
+    pending=True 让前端显示「正在拉取」而不是 0 或误导文案。
+    """
+    try:
+        w = (row["wallet"] if "wallet" in row.keys() else "") or ""
+    except (IndexError, KeyError):
+        return None
+    if not w.strip():
+        return None
+    return {"wallet": w.strip(), "coin": _rig_coin(row), "total": None,
+            "pending": True, "rewards": None, "paid": None}
+
+
+def unique_wallets(with_pool=False):
+    """_wallet_map 快照去重：同一钱包可能被多台矿机共用（各自上报同一地址）。
+
+    with_pool=False：按 (币种,钱包) 去重——打款/收益是链上的，同一钱包只能算一次。
+    with_pool=True ：按 (币种,钱包,所在池) 去重——待付余额按池各算各的，
+                     同一钱包挂在两个池上是两份独立余额，合成一条会把其中一个池抹掉。
+    """
     with _wallet_lock:
         seen, out = set(), []
         for v in _wallet_map.values():
-            wk = ((v.get("coin") or ""), (v.get("wallet") or "").strip())
-            if not wk[1] or wk in seen:
+            w = (v.get("wallet") or "").strip()
+            if not w:
+                continue
+            coin = v.get("coin") or ""
+            if with_pool:
+                wk = (coin, w, v.get("pool_brand") or "")
+            else:
+                wk = (coin, w)
+            if wk in seen:
                 continue
             seen.add(wk)
             out.append(v)
@@ -560,15 +679,16 @@ def wallet_set(rig, wallet):
     out = {"ok": True, "rig": rig, "wallet": wallet}
     if wallet:
         try:
-            r = c.execute("SELECT last_report FROM rigs WHERE name=?", (rig,)).fetchone()
+            r = c.execute("SELECT pool_url, last_report FROM rigs WHERE name=?", (rig,)).fetchone()
             coin = _rig_coin(r)
-            w = wallet_fetch_one(coin, wallet)
+            w = wallet_fetch_one(coin, wallet, _rig_pool_url(r))
             w["wallet"] = wallet
             try:
                 inc = chain_income_stats(wallet_chain_txs(coin, wallet))
                 w["paid"] = inc
                 w["rewards"] = {k: inc[k] for k in
-                                ("today", "yesterday", "d7", "d30", "days")}
+                                ("today", "yesterday", "d7", "d30",
+                                 "days", "pools", "days_pool")}
             except Exception as e:  # noqa: BLE001
                 print("[wallet] %s 链上交易拉取失败: %s" % (rig, e), flush=True)
             with _wallet_lock:
@@ -666,6 +786,7 @@ def handle_report(payload):
         "income_ref_model": (ref or {}).get("ref_model"),
         "income_ref_ths": (ref or {}).get("ths"),
         "hostname": payload.get("hostname") or "",
+        "wallet": str(payload.get("wallet") or "").strip(),
         "client_version": payload.get("client_version") or "",
         "game_proc": payload.get("game_proc") or None,
         "kernel": payload.get("kernel") or "",
@@ -782,20 +903,24 @@ def fleet_payload():
                                else "") or (snap or {}).get("client_version") or "",
             "pool_url": (r["pool_url"] if "pool_url" in r.keys()
                          else "") or (snap or {}).get("pool_url") or "",
-            "wallet": wallet_for(r["name"]),
+            "wallet": wallet_for(r["name"]) or wallet_stub(r),
             "snapshot": snap, "history": [dict(h) for h in hist],
         })
-    # 同一钱包可能被多台矿机共用（各自上报同一地址），聚合按 (币种,钱包) 去重，
-    # 否则未支付余额/实收/今日收入会按矿机台数翻倍
+    # 同一钱包可能被多台矿机共用（各自上报同一地址），两套口径各算各的：
+    #   打款/收益是链上的 → 按 (币种,钱包) 去重，否则按矿机台数翻倍
+    #   待付余额是分池的   → 按 (币种,钱包,池) 去重，同一钱包挂两池各算各的
     _uniq = unique_wallets()
+    _uniq_pool = unique_wallets(with_pool=True)
     _coins = {v["coin"].upper() for v in _uniq}
-    total["wallet_total"] = round(sum(v["total"] for v in _uniq), 4)
+    # 注意 total 可能为 None（所在池不提供余额查询）——按 0 计入合计，
+    # 具体每台的「待付不可查」由 rig.wallet.unpaid_supported 标注
+    total["wallet_total"] = round(sum((v.get("total") or 0) for v in _uniq_pool), 4)
     _paid = {"h24": 0.0, "yesterday": 0.0, "d7": 0.0, "d30": 0.0, "total": 0.0}
     for v in _uniq:
         p = v.get("paid") or {}
         for k in _paid:
             _paid[k] = round(_paid[k] + (p.get(k) or 0.0), 6)
-    # 今日实际收入（reward-chart 按天真实收益）
+    # 今日实际收入（链上真实到账，按北京时间归日）
     _reward = {"today": 0.0, "yesterday": 0.0, "d7": 0.0, "d30": 0.0}
     for v in _uniq:
         rs = v.get("rewards") or {}
@@ -803,6 +928,32 @@ def fleet_payload():
             _reward[k] = round(_reward[k] + (rs.get(k) or 0.0), 6)
     total["wallet_paid"] = _paid
     total["wallet_reward"] = _reward
+    # ---- 按矿池拆分（对齐 vminers：Kryptex / PearlHash / LuckyPool / 其它 分色）----
+    # wallet_pools[pid] = {name, unpaid, unpaid_supported, reward:{today..d30}}
+    # unpaid 为该池账户的未支付余额（pool_brand 取自 rig 当前所在池）；
+    # 无公开余额 API 的池 unpaid=None、unpaid_supported=False。
+    _brand_names = {b["id"]: b["name"] for b in POOL_BRANDS}
+    _wpools = {}
+    for v in _uniq:
+        for pid, p in ((v.get("rewards") or {}).get("pools") or {}).items():
+            e = _wpools.setdefault(pid, {
+                "name": p.get("name") or _brand_names.get(pid, pid),
+                "unpaid": None, "unpaid_supported": None,
+                "reward": {"today": 0.0, "yesterday": 0.0, "d7": 0.0, "d30": 0.0}})
+            for k in e["reward"]:
+                e["reward"][k] = round(e["reward"][k] + (p.get(k) or 0.0), 6)
+    # 待付余额：按池各归各的（同一钱包挂在 Kryptex 与 PearlHash 是两份独立余额）
+    for v in _uniq_pool:
+        pid = v.get("pool_brand") or ""
+        if not pid:
+            continue
+        e = _wpools.setdefault(pid, {
+            "name": _brand_names.get(pid, pid),
+            "unpaid": None, "unpaid_supported": None,
+            "reward": {"today": 0.0, "yesterday": 0.0, "d7": 0.0, "d30": 0.0}})
+        e["unpaid"] = v.get("total")
+        e["unpaid_supported"] = v.get("unpaid_supported", True)
+    total["wallet_pools"] = _wpools
     total["wallet_reward_coin"] = (next(iter(_coins)) if len(_coins) == 1
                                    else ("MIX" if _coins else ""))
     total["wallet_coin"] = _coins.pop() if len(_coins) == 1 else ("MIX" if _coins else "")
@@ -910,6 +1061,39 @@ _POOL_URL_RE = re.compile(r"^stratum\+(tcp|ssl)://[A-Za-z0-9._\-]+:\d{1,5}$")
 
 def pool_node_url(n):
     return "stratum+tcp://%s:%d" % (n["host"], int(n["port"]))
+
+
+def pool_brand_of(url):
+    """stratum URL -> 矿池品牌 id（kryptex/pearlhash/...）。
+
+    先按 POOL_BRANDS 节点 host 精确匹配；匹配不到（自定义矿池/换了域名）
+    再按域名关键词兜底；都失败返回 ""（看板按「自定义池」处理）。
+    """
+    u = (url or "").strip().lower()
+    if not u:
+        return ""
+    host = re.sub(r"^stratum\+(tcp|ssl)://", "", u).split(":")[0]
+    for b in POOL_BRANDS:
+        for n in b["nodes"]:
+            if host == str(n["host"]).lower():
+                return b["id"]
+    for b in POOL_BRANDS:
+        if b["id"] in host:
+            return b["id"]
+    for kw, bid in (("kryptex", "kryptex"), ("pearlhash", "pearlhash"),
+                    ("k1pool", "k1pool"), ("f2pool", "f2pool"),
+                    ("herominers", "herominers"), ("alphapool", "alphapool")):
+        if kw in host:
+            return bid
+    return ""
+
+
+# 矿池「未支付余额」查询 API（按品牌）。只有提供公开按钱包查询接口的池才列在这里；
+# 未列入的池（如 PearlHash——无公开余额 API 且中控网络不可达）返回
+# unpaid_supported=False，看板标注「待付不可查」，而不是拿别的池的数字冒充。
+POOL_BALANCE_API = {
+    "kryptex": "https://pool.kryptex.com/{coin}/api/v1/miner/balance/{wallet}",
+}
 
 
 def valid_pool_url(u):

@@ -1,0 +1,51 @@
+// 量 .kpi .m 实际渲染行数（line-clamp 是否给足两行）
+const PORT = parseInt(process.argv[2] || "9344", 10);
+const URL = process.argv[3];
+const TOKEN = process.argv[4] || "";
+function httpGet(path) {
+  return new Promise((res, rej) => {
+    require("http").get({ host: "127.0.0.1", port: PORT, path }, r => {
+      let b = ""; r.on("data", c => (b += c)); r.on("end", () => res(JSON.parse(b)));
+    }).on("error", rej);
+  });
+}
+async function main() {
+  const list = await httpGet("/json");
+  const t = list.find(x => x.type === "page");
+  const ws = new WebSocket(t.webSocketDebuggerUrl);
+  await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
+  let id = 0; const pending = new Map();
+  ws.onmessage = ev => {
+    const m = JSON.parse(ev.data);
+    if (m.id && pending.has(m.id)) {
+      const { res, rej } = pending.get(m.id); pending.delete(m.id);
+      m.error ? rej(new Error(JSON.stringify(m.error))) : res(m.result);
+    }
+  };
+  const cmd = (method, params) => new Promise((res, rej) => {
+    const mid = ++id; pending.set(mid, { res, rej });
+    ws.send(JSON.stringify({ id: mid, method, params }));
+  });
+  await cmd("Runtime.enable"); await cmd("Page.enable");
+  if (TOKEN) await cmd("Page.addScriptToEvaluateOnNewDocument", {
+    source: `try{localStorage.setItem('bapiminer_admin_token', ${JSON.stringify(TOKEN)})}catch(e){}`
+  });
+  await cmd("Emulation.setDeviceMetricsOverride",
+    { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
+  await cmd("Page.navigate", { url: URL });
+  await new Promise(r => setTimeout(r, 9000));
+  const r = await cmd("Runtime.evaluate", {
+    expression: `(() => {
+      return JSON.stringify([...document.querySelectorAll('.kpi .m')].map(mm => {
+        const cs = getComputedStyle(mm);
+        const lh = parseFloat(cs.lineHeight) || 16;
+        const h = mm.getBoundingClientRect().height;
+        return { text: mm.textContent.trim().slice(0, 30), h: Math.round(h),
+                 lines: Math.round(h / lh * 10) / 10, clamp: cs.webkitLineClamp };
+      }));
+    })()`, returnByValue: true
+  });
+  console.log(r.result.value);
+  ws.close();
+}
+main().catch(e => { console.error("FAIL", String(e && e.message || e)); process.exit(1); });

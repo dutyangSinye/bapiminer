@@ -1,0 +1,33 @@
+=== Shell_TrayWnd ===
+visible BUTTON name='开始' class='ToggleButton' pid=20796
+visible BUTTON name='文件资源管理器 - 1 个运行窗口 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='WeChat - 1 个运行窗口 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='Microsoft Edge - 1 个运行窗口 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='豆包 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='飞书 - 1 个运行窗口 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='WPS Office - 1 个运行窗口 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='极空间 - 2 个运行窗口 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='Codex - 1 个运行窗口 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='Everything 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='命令提示符 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='WorkBuddy - 1 个运行窗口 已固定' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='Microsoft Edge - 1 个运行窗口' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='远程桌面连接 - 1 个运行窗口' class='Taskbar.TaskListButtonAutomationPeer' pid=20796
+visible BUTTON name='显示隐藏的图标' class='SystemTray.NormalButton' pid=20796
+visible BUTTON name='' class='SystemTray.NormalButton' pid=20796
+visible BUTTON name='微信' class='SystemTray.NormalButton' pid=20796
+visible BUTTON name='蓝牙设备' class='SystemTray.NormalButton' pid=20796
+visible BUTTON name='托盘输入指示器 中/英文' class='SystemTray.NormalButton' pid=20796
+visible BUTTON name='托盘输入指示器 简体中文(中国大陆)
+搜狗拼音输入法
+
+要切换输入法，按 Windows 键+空格。' class='SystemTray.NormalButton' pid=20796
+visible BUTTON name='网络 Network
+Internet 访问
+
+vgate0 17
+无法访问 Internet' class='SystemTray.AccentButton' pid=20796
+visible BUTTON name='音量 LECOO M2721U (NVIDIA High Definition Audio): 100%' class='SystemTray.OmniButtonRight' pid=20796
+visible BUTTON name='时钟 16:22:07
+‎2026/‎10/‎24' class='SystemTray.OmniButton' pid=20796
+visible BUTTON name='显示桌面' class='SystemTray.ShowDesktopButton' pid=20796
