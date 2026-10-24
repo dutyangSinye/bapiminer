@@ -1,0 +1,1662 @@
+chevron rect = 3231,2076 56x84
+clicked chevron at 3259,2118
+=== TOP class='Shell_TrayWnd' name='' children=23
+    MSTaskSwWClass :: 运行中的应用程序
+    ToggleButton :: 开始
+    Taskbar.TaskListButtonAutomationPeer :: 文件资源管理器 - 2 个运行窗口 已固定
+    Taskbar.TaskListButtonAutomationPeer :: WeChat - 1 个运行窗口 已固定
+    Taskbar.TaskListButtonAutomationPeer :: Microsoft Edge - 1 个运行窗口 已固定
+    Taskbar.TaskListButtonAutomationPeer :: 豆包 已固定
+    Taskbar.TaskListButtonAutomationPeer :: 飞书 - 1 个运行窗口 已固定
+    Taskbar.TaskListButtonAutomationPeer :: WPS Office - 1 个运行窗口 已固定
+    Taskbar.TaskListButtonAutomationPeer :: 极空间 - 2 个运行窗口 已固定
+    Taskbar.TaskListButtonAutomationPeer :: Codex - 1 个运行窗口 已固定
+    Taskbar.TaskListButtonAutomationPeer :: Everything 已固定
+    Taskbar.TaskListButtonAutomationPeer :: 命令提示符 已固定
+    Taskbar.TaskListButtonAutomationPeer :: WorkBuddy - 1 个运行窗口 已固定
+    Taskbar.TaskListButtonAutomationPeer :: 远程桌面连接 - 1 个运行窗口
+    SystemTray.NormalButton :: 显示隐藏的图标
+    SystemTray.NormalButton :: 微信
+    SystemTray.NormalButton :: 蓝牙设备
+    SystemTray.NormalButton :: 托盘输入指示器 中/英文
+    SystemTray.NormalButton :: 托盘输入指示器 简体中文(中国大陆) / 搜狗拼音输入法 /  / 要切换输入法，按 Windows 键+空格。
+    SystemTray.AccentButton :: 网络 Network / Internet 访问 /  / vgate0 17 / 无法访问 Internet
+    SystemTray.OmniButtonRight :: 音量 LECOO M2721U (NVIDIA High Definition Audio): 100%
+    SystemTray.OmniButton :: 时钟 16:41:50 / ‎2026/‎10/‎24
+    SystemTray.ShowDesktopButton :: 显示桌面
+=== TOP class='Chrome_WidgetWin_1' name='扒皮矿工 · 中控台 和另外 6 个页面 - 个人 - Microsoft​ Edge Beta' children=323
+    BrowserRootView :: 扒皮矿工 · 中控台 - Microsoft Edge Beta
+    EdgeWindowsCaptionButton :: 最小化
+    EdgeWindowsCaptionButton :: 还原
+    EdgeWindowsCaptionButton :: 关闭
+    EdgeToolbarView :: 应用栏
+    BackForwardButton :: 返回
+    ReloadButton :: 刷新
+    HomeButton :: 主页
+    LocationIconView :: 不安全
+    OmniboxViewViews :: 地址和搜索栏
+    PageActionView :: 管理密码
+    EdgePageActionIconView :: 进入阅读模式(F9)
+    StarView :: 将此页面添加到收藏夹(Ctrl+D)
+    ToolbarActionView :: 篡改猴测试版 / 有权访问此网站
+    ToolbarActionView :: ChatGPT / 有权访问此网站 / 包含边栏体验
+    EdgeExtensionsHubButton :: 扩展
+    HubToggleToolbarButton :: 收藏夹
+    ContextMenuButton :: 发送反馈
+    EdgeAvatarToolbarButton :: 个人 个人资料
+    BrowserAppMenuButton :: 设置及其他 (Alt+F)
+     :: 扒皮矿工 · 中控台
+    mark :: 扒皮矿工
+     :: 扒皮矿工
+     :: 中控台
+     :: 矿机监控 · 告警 · 批量远程控制 · 游戏模式让卡
+     :: 更新于 16:42
+    btn :: ↻ 刷新
+     :: 矿机状态总览
+     :: 每台矿机 30 秒上报一次 · 掉线 / 降算力 / 高温自动告警 · 远程操作需二次确认
+     :: 毛收益 
+     :: PRL pearlhash
+     :: 费率口径 
+     :: 含矿池/dev fee 前
+     :: 🖥
+     :: 在线矿机
+     :: 6
+     :: /6 台
+     :: 全部在线
+     :: ⚡
+     :: 总算力
+     :: 1,382.5
+     :: TH/s
+     :: PRL 2 池实测
+     :: 🔌
+     :: 总功耗
+     :: 2.02
+     :: kW
+     :: GPU 板功耗合计
+     :: 💰
+     :: 预计日收益
+     :: ¥276
+     :: 均价 0.02996 USDT/TH/s · 汇率 6.66
+     :: 🏦
+     :: 矿池未支付
+     :: 0.3721
+     :: PRL
+     :: 已确认 0.0000 · 确认中 0.3721 · 待付 PearlHash不可查 / Kryptex 0.3721
+     :: 🎮
+     :: GPU / 状态
+     :: 6
+     ::  张卡
+     :: 6
+     ::  工作中 / 
+     :: 0
+     ::  待机 / 
+     :: 0
+     ::  离线
+     :: 🪙
+     :: 今日实际收入
+     :: 26.1165
+     :: PRL
+     :: ≈ ¥174.05 · 昨日 7.9853 · 近7日 76.6994 PRL（PearlHash 2.6359 + Kryptex 3.6332 + 其它 19.8475）
+     :: 📊
+     :: 近 30 天实收
+     :: 246.8129
+     :: PRL
+     :: 实收 ¥1,645
+     :: 🔍 搜索矿工名…
+     :: 只看离线
+    chk :: 按钱包地址聚合矿机，地址中间段脱敏显示
+     :: 按钱包分组
+     :: 按钱包分组
+    btn mini :: 全选
+    btn mini :: 全不选
+     :: 已选 0 台
+    btn mini :: ↻ 重启
+    btn mini :: ▶ 启动
+    btn mini :: ■ 停止
+    btn mini :: 🎮 让卡
+    btn mini :: 🎮 恢复
+    btn mini :: ⬇ 更新内核
+    btn mini :: ⬆ 升级客户端
+    btn mini :: ⚙ 批量配置
+     :: 矿机列表
+     :: 6 / 6 台
+    sel-cb :: 选中用于批量操作
+     :: 9700x
+    btn mini  :: 🎮 模式
+    btn mini danger :: ↻ 重启
+    btn mini :: 🔑 重置
+    btn mini :: ⚙
+     :: srbminer
+     :: 内核 3.8.0
+     :: 客户端 1.12.0.4
+     :: 170.6
+     :: TH/s · RTX 4070 Ti SUPER
+     :: 功耗
+     :: 256 W
+     :: 温度 / 风扇
+     :: 65°C / 53%
+     :: 有效 / 拒绝
+     :: 184 / 
+     :: 5
+     :: 连续运行
+     :: 2小时57分
+     :: #0 
+     :: 65°C
+     ::  53% · 256W
+     :: 心跳 刚刚 · 
+     :: ⛏ Kryptex · 中国香港
+     :: ≈ ¥34/天
+     :: 🏦 0.3721 PRL · 0%
+    sel-cb :: 选中用于批量操作
+     :: biu
+    btn mini  :: 🎮 模式
+    btn mini danger :: ↻ 重启
+    btn mini :: 🔑 重置
+    btn mini :: ⚙
+     :: wildrig
+     :: 内核 0.51.7
+     :: 客户端 1.12.0.4
+     :: 439.9
+     :: TH/s · RTX 5090
+     :: 功耗
+     :: 581 W
+     :: 温度 / 风扇
+     :: 80°C / 76%
+     :: 有效 / 拒绝
+     :: 97 / 
+     :: 1
+     :: 连续运行
+     :: 1小时57分
+     :: #0 
+     :: 80°C
+     ::  76% · 581W
+     :: 心跳 刚刚 · 
+     :: ⛏ PearlHash · 全球（Anycast）
+     :: ≈ ¥88/天
+     :: 🏦 待付不可查
+    sel-cb :: 选中用于批量操作
+     :: desktop-doh31o5
+    btn mini  :: 🎮 模式
+    btn mini danger :: ↻ 重启
+    btn mini :: 🔑 重置
+    btn mini :: ⚙
+     :: srbminer
+     :: 内核 3.8.0
+     :: 客户端 1.12.0.4
+     :: 73.3
+     :: TH/s · RTX 3060 Ti
+     :: 功耗
+     :: 215 W
+     :: 温度 / 风扇
+     :: 60°C / 71%
+     :: 有效 / 拒绝
+     :: 78 / 
+     :: 0
+     :: 连续运行
+     :: 2小时56分
+     :: #0 
+     :: 60°C
+     ::  71% · 215W
+     :: 心跳 刚刚 · 
+     :: ⛏ Kryptex · 中国香港
+     :: ≈ ¥15/天
+     :: 🏦 0.3721 PRL · 0%
+    sel-cb :: 选中用于批量操作
+     :: dutyangbim
+    btn mini  :: 🎮 模式
+    btn mini danger :: ↻ 重启
+    btn mini :: 🔑 重置
+    btn mini :: ⚙
+     :: wildrig
+     :: 内核 0.51.7
+     :: 客户端 1.12.0.4
+     :: 136.7
+     :: TH/s · RTX 5080 Laptop GPU
+     :: 功耗
+     :: 152 W
+     :: 温度 / 风扇
+     :: 78°C / 0%
+     :: 有效 / 拒绝
+     :: 43 / 
+     :: 0
+     :: 连续运行
+     :: 3小时40分
+     :: #0 
+     :: 78°C
+     ::  0% · 152W
+     :: 心跳 刚刚 · 
+     :: ⛏ PearlHash · 全球（Anycast）
+     :: ≈ ¥27/天
+     :: 🏦 待付不可查
+    sel-cb :: 选中用于批量操作
+     :: dutyangsinye
+    btn mini  :: 🎮 模式
+    btn mini danger :: ↻ 重启
+    btn mini :: 🔑 重置
+    btn mini :: ⚙
+     :: wildrig
+     :: 内核 0.51.7
+     :: 客户端 1.12.0.4
+     :: 236.4
+     :: TH/s · RTX 5080
+     :: 功耗
+     :: 366 W
+     :: 温度 / 风扇
+     :: 77°C / 57%
+     :: 有效 / 拒绝
+     :: 13 / 
+     :: 0
+     :: 连续运行
+     :: 36分钟
+     :: #0 
+     :: 77°C
+     ::  57% · 366W
+     :: 心跳 刚刚 · 
+     :: ⛏ PearlHash · 全球（Anycast）
+     :: ≈ ¥47/天
+     :: 🏦 待付不可查
+    sel-cb :: 选中用于批量操作
+     :: sinyebim
+    btn mini  :: 🎮 模式
+    btn mini danger :: ↻ 重启
+    btn mini :: 🔑 重置
+    btn mini :: ⚙
+     :: wildrig
+     :: 内核 0.51.7
+     :: 客户端 1.12.0.4
+     :: 325.7
+     :: TH/s · RTX 4090
+     :: 功耗
+     :: 450 W
+     :: 温度 / 风扇
+     :: 78°C / 93%
+     :: 有效 / 拒绝
+     :: 34 / 
+     :: 0
+     :: 连续运行
+     :: 1小时14分
+     :: #0 
+     :: 78°C
+     ::  93% · 450W
+     :: 心跳 刚刚 · 
+     :: ⛏ PearlHash · 全球（Anycast）
+     :: ≈ ¥65/天
+     :: 🏦 待付不可查
+     :: 📦 客户端下载 2 个安装包 · 35.1 MB 收起
+     :: 🖥
+     :: 矿机端 · Windows 
+     :: v1.12.0.4
+     :: Windows 10 / 11 · x64
+     :: 双击即用，中控地址与令牌已内置；首次启动自动下载挖矿内核，无需手工配置。
+     :: 15.3 MB
+     :: 2026/10/24 更新
+     :: 0b52bfdded…
+    btn primary mini :: ⬇ 下载
+    btn mini :: 复制链接
+     :: 📱
+     :: 手机端 · Android
+     :: Android 6.0 以上 · arm64 / armeabi-v7a
+     :: 手机随时看矿机状态、收告警、远程启停与切换游戏模式。
+     :: 19.7 MB
+     :: 2026/10/23 更新
+     :: 83d6b927fa…
+    btn primary mini :: ⬇ 下载
+    btn mini :: 复制链接
+     :: 💾 挖矿内核 10/24 16:18 检查 收起
+    btn mini :: ⟳ 检查最新版
+     :: SRBMiner-MULTI
+     :: 3.8.0
+     :: SRBMiner-Multi-3-8-0-win64.zip · 27.1 MB
+     :: NAS 已缓存
+     :: 2/2 台已是最新
+    btn mini :: ⬇ 更新选中矿机
+     :: BzMiner
+     :: v100.50
+     :: bzminer_v100.50_windows.zip · 42.8 MB
+     :: NAS 已缓存
+     :: 暂无矿机上报该内核版本
+    btn mini :: ⬇ 更新选中矿机
+     :: WildRig
+     :: 0.51.7
+     :: wildrig-multi-windows-0.51.7.zip · 40.6 MB
+     :: NAS 已缓存
+     :: 4/4 台已是最新
+    btn mini :: ⬇ 更新选中矿机
+     :: 📅 按天明细（按矿机/矿池估算） 展开
+     :: 🔔 告警 5 条未处理 展开
+     :: 告警规则：掉线（150 秒无心跳）· 算力较 1 小时均值降 25% · GPU ≥ 83C
+     ::  / 
+     :: 日收益估算 = 总算力 × 全网均价(USDT/TH/s/天) × 实时汇率（数据来源：vminers.com PRL 实测榜），含矿池/dev fee 前毛收益
+     ::  / 
+     :: 实收/未支付余额/打款记录来自矿池 API（Kryptex Pool）真实数据；矿池攒满起付线（1 PRL）批量打款，实收按到账日计，晚于实际挖矿日
+     ::  / 
+     :: 今日实际收入 = 矿池奖励曲线（reward-chart）当日收益，按北京时间汇总；与「实收」的区别：实收是攒满起付线后的批量打款到账，今日实际收入是当天真实挖矿收益（币数）
+    EdgeTabStripRegionView :: 标签页栏
+    SpaceworkButton :: 工作区按钮
+    EdgeTab :: 交易区 - Chiphell - 分享与交流用户体验 - 睡眠 - 内存使用率 - 94.3 MB
+    EdgeTabCloseButton :: 关闭标签页
+    EdgeTab :: 战斗 - 魔像洞穴 (T4) (队伍) - 银河奶牛放置 - 睡眠 - 内存使用率 - 673 MB
+    EdgeTabCloseButton :: 关闭标签页
+    EdgeTab :: 扒皮矿工 · 中控台 - 内存使用率 - 108 MB
+    EdgeTabCloseButton :: 关闭标签页
+    EdgeTab :: 显卡算力性价比排行榜 · 实时 - 睡眠 - 内存使用率 - 87.5 MB
+    EdgeTabCloseButton :: 关闭标签页
+    EdgeTab :: bapiminer/README.md at main · dutyangSinye/bapiminer - 内存使用率 - 190 MB
+    EdgeTabCloseButton :: 关闭标签页
+    EdgeTab :: Pearl Compute Platform - 睡眠 - 内存使用率 - 206 MB
+    EdgeTabCloseButton :: 关闭标签页
+    EdgeTab :: 算力服务器租用_算力租用价格-闪电云算力 - 内存使用率 - 190 MB
+    EdgeTabCloseButton :: 关闭标签页
+    EdgeNewTabButton :: 新建标签页
+=== TOP class='mmui::MainWindow' name='微信' children=66
+    mmui::MainTabBar :: 导航
+    mmui::XTabBarItem :: 微信
+    mmui::XTabBarItem :: 通讯录
+    mmui::XTabBarItem :: 收藏
+    mmui::XTabBarItem :: 发现
+    mmui::HandoffTabbarView :: 手机
+    mmui::XButton :: 手机
+    mmui::MainTabBarSettingView :: 更多
+    mmui::XButton :: 更多
+    mmui::XHBoxView :: 软件问题解决群(4)
+    mmui::XTextView :: 软件问题解决群
+    mmui::XTextView :: (4)
+    mmui::XButton :: 聊天记录
+    mmui::XButton :: 从手机导入聊天记录
+    mmui::XButton :: 语音通话
+    mmui::XButton :: 聊天信息
+    mmui::ChatInputField :: 软件问题解决群
+    mmui::XButton :: 发送表情(Alt+E)
+    mmui::XButton :: 发送收藏
+    mmui::XButton :: 发送文件
+    mmui::XButton :: 截图(Alt+A)
+    mmui::XButton :: 隐藏窗口截图
+    mmui::XButton :: 直播
+    mmui::VoiceInputView :: 语音输入文字(按住Ctrl+Win)
+    mmui::XButton :: 语音输入文字(按住Ctrl+Win)
+    mmui::XButton :: 发语音 ( 按住右 Alt )
+    mmui::XOutlineButton :: 发送
+    mmui::XTextView :: 发送
+    mmui::RecyclerListView :: 消息
+    mmui::ChatTextItemView :: 把后台分一分
+    mmui::ChatItemView :: 16:30
+    mmui::ChatTextItemView :: [阴险]
+    mmui::ChatItemView :: 16:35
+    mmui::ChatTextItemView :: 嗯。
+    mmui::ChatTextItemView :: 改成租户模式 分离开
+    mmui::ChatTextItemView :: 能挖就行，其他可以自己客服
+    mmui::ChatTextItemView :: 克服
+    mmui::ChatTextItemView :: 有点追求哈
+    mmui::ChatTextItemView :: [坏笑]
+    mmui::ChatImageItemView :: 图片
+    mmui::UnreadBarView :: 1条新消息
+    mmui::XTextView :: 1条新消息
+    mmui::XValidatorTextEdit :: 搜索
+    mmui::XButton :: 快捷操作
+    mmui::XTableView :: 会话
+    mmui::ChatSessionCell :: 🏠 / 已置顶 / 奇奇瘦爸: [语音] 4" / 16:36 / 消息免打扰 / 
+    mmui::ChatSessionCell :: 是真没减掉 / 已置顶 / [图片]  / 16:15 / 消息免打扰 / 
+    mmui::ChatSessionCell :: 小毛驴 / 已置顶 / [视频通话] / 10:27 / 
+    mmui::ChatSessionCell :: 文件传输助手 / 已置顶 / [文件] 扒皮矿工.apk / 昨天 19:25 / 
+    mmui::ChatSessionCell :: SINYE芯烨机器人公司 / 已置顶 / 牛智祥 五冶: [OK] / 昨天 17:17 / 消息免打扰 / 
+    mmui::ChatSessionCell :: 芫一、宥一照片发布群 / 已置顶 / [视频]  / 昨天 16:50 / 消息免打扰 / 
+    mmui::ChatSessionCell :: 启航京西祥云☁️托一班 / 已置顶 / 桔子: [视频]  / 昨天 16:37 / 消息免打扰 / 
+    mmui::ChatSessionCell :: 林宗奇 / 已置顶 / 来了 / 昨天 13:33 / 
+    mmui::ChatSessionCell :: 薛志龙 / 已置顶 / [文件] 钢筋加工机器人接口清单.md / 星期三 / 
+    mmui::ChatSessionCell :: 上赞WiFi / 已置顶 / 服务到期提醒 / 星期三 / 
+    mmui::ChatSessionCell :: 奇奇弟弟 / 已置顶 / ？？？ / 10/13 / 
+    mmui::ChatSessionCell :: 柴垛垛 / 已置顶 / 619367 / 09/07 / 
+    mmui::ChatSessionCell :: 软件问题解决群 / [1条]  / 宏亮-戴科敏: 要不你自建个矿池吧 / 16:42 / 消息免打扰 / 
+    mmui::ChatSessionCell :: ！谨言慎行-沈阳互联圈 / 孤独行走的狼: 出摊，来玩，桥上[色][色][色] / 16:42 / 消息免打扰 / 
+    mmui::ChatSessionCell :: 沈阳it群 / 孤独行走的狼: 出摊，来玩，桥上[色][色][色] / 16:42 / 消息免打扰 / 
+    mmui::ChatSessionCell :: 🍉 天天吃瓜 🍉 / [1条]  / 机智如我: 我家以前也说得很夸张 换了医院就又是一个说法 / 16:42 / 消息免打扰 / 
+    mmui::ChatSessionCell :: 公众号 / 三国志战略版官方: 四大军团赛前互相放狠话！直播即将开始，今晚见证冠军诞生！ / 16:36 / 
+    mmui::PinnedButton :: 置顶
+    mmui::XButton :: 最小化
+    mmui::XButton :: 还原
+    mmui::XButton :: 关闭
+=== TOP class='Chrome_WidgetWin_1' name='ChatGPT' children=4
+    RootView :: ChatGPT
+    ChromeNodeCaptionButton :: 最小化
+    ChromeNodeCaptionButton :: 恢复
+    ChromeNodeCaptionButton :: 关闭
+=== TOP class='CabinetWClass' name='2026-10 - 文件资源管理器' children=306
+    ShellTabWindowClass :: 2026-10
+    StatusBarModuleInner :: 状态栏
+    Element :: 属性字段
+    MetadataLabel :: 107 个项目
+    Element :: 属性字段
+    MetadataLabel :: 选中 1 个项目  2.31 MB
+    SelectorNoDefault :: 查看模式
+    SelectorButton :: 详细信息
+    SelectorButton :: 大图标
+    ProperTreeHost :: 控制项宿主
+    SysTreeView32 :: 导航窗格
+    DUIListView :: Shell 文件夹视图
+    UIItemsView :: 项目视图
+    LineVScrollBar :: 垂直
+    UIViewHeader :: 标题
+    UIColumnHeader :: 名称
+    Button :: 筛选器下拉列表
+    UIColumnHeader :: 大小
+    Button :: 筛选器下拉列表
+    UIColumnHeader :: 类型
+    Button :: 筛选器下拉列表
+    UIColumnHeader :: 修改日期
+    Button :: 筛选器下拉列表
+    UIItem :: BaPiMiner(1).exe
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 2026_10_23-21_36_15.xlsx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: BaPiMiner.exe
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 风翎软壳训练风衣595件10-23.xls
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 扒皮矿工(1).apk
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 精通助手1.0.9.txt
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 生产管控系统(1).docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 生产管控系统.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 芯烨立项书与新松备忘录差异对比.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 芯烨立项书与新松备忘录差异对比-汇报.pptx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 扒皮矿工.apk
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 关于开展人工智能应用服务商培育专项行动的通知-最终-已填报.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: MinRigs群控.apk
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 奇某瑞国际部出轨瓜.pptx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 附件2-特色业务高质量发展调研报告-市场部填写稿-2026-10-22.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: （招标文件）华电靖宇抽水蓄能有限公司钢筋加工工程.rar
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 室内三合一施工机器人备忘录.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 室内墙板搬运机器人备忘录.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 钢筋绑扎机器人备忘录.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 建筑机器人产品编号标准.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 机器人集群智能调度管理系统2.0立项及落地方案V2.0（补足AI视频分析、课题对应）.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 室内三合一施工机器人技术协议（技术服务部意见）.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 726350.pdf
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 定版合同 2026-10-09 15.13.pdf
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 报价测算表(1).xlsx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 钢筋加工机器人接口清单(1).md
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 附件1-中国中冶特色业务高质量发展调研表-XXX企业-XXX业务(1).xlsx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 华电靖宇投标-智能化功能要求清单(1).xlsx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: MQTT-WG12B2天津建科钢筋加工数据格式说明-java(1).pdf
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 四川芯烨智创科技有限公司-物资设备管理办法-4.24.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 机器人研发与生产编号清单(1)(1).xlsx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 建筑机器人产品命名20260624(1).xlsx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: A股市场分析-2026-10(1).pptx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 微信群抬杠艺术指南(1).pptx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 芯烨钢筋加工房_综合管理系统建设分项报价测算表(1).docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 芯烨钢筋加工房_综合管理系统建设分项报价测算表.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: block_20261020_increment.txt
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 2026年10月第2次业务推进会会议纪要.pdf
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 2.3主要技术措施（改）.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 12 绿色施工（改）.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 合同金额明细表.xlsx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 林鑫_软件开发工程师.pdf
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: “合同管理软件系统开发讨论”-转文本结果.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 安全管理办法10.22日之前反馈意见(1).zip
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 业主证明(2).pdf
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 室内三合一施工机器人技术协议.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 钢筋加工厂技术标_目录重构去标识版_2610121.docx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: 经费预算表(1).xlsx
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    ListViewItem :: 2026-10
+    TextBlock :: 2026-10
+    Button :: 关闭标签页
+    Button :: 添加新标签页
+    AppBarButton :: 后退
+    AppBarButton :: 前进
+    AppBarButton :: 上移到“file”(Alt + 向上键)
+    AppBarButton :: 刷新“2026-10”(F5)
+    TextBox :: 地址栏
+    FileExplorerExtensions.FirstCrumbStackPanelControl :: 此电脑
+    FileExplorerExtensions.BreadcrumbBarItemControl :: 此电脑
+    TextBlock :: 此电脑
+    FileExplorerExtensions.BreadcrumbBarItemControl :: Windows X-Lite (C:)
+    TextBlock :: Windows X-Lite (C:)
+    FileExplorerExtensions.BreadcrumbBarItemControl :: 用户
+    TextBlock :: 用户
+    FileExplorerExtensions.BreadcrumbBarItemControl :: Admin
+    TextBlock :: Admin
+    FileExplorerExtensions.BreadcrumbBarItemControl :: 文档
+    TextBlock :: 文档
+    FileExplorerExtensions.BreadcrumbBarItemControl :: xwechat_files
+    TextBlock :: xwechat_files
+    FileExplorerExtensions.BreadcrumbBarItemControl :: dutyang_fc63
+    TextBlock :: dutyang_fc63
+    FileExplorerExtensions.BreadcrumbBarItemControl :: msg
+    TextBlock :: msg
+    FileExplorerExtensions.BreadcrumbBarItemControl :: file
+    TextBlock :: file
+    FileExplorerExtensions.BreadcrumbBarItemControl :: 2026-10
+    TextBlock :: 2026-10
+    TextBox ::  在 2026-10 中搜索
+    TextBlock ::  在 2026-10 中搜索
+    AppBarButton :: 新建
+    AppBarButton :: 剪切​​
+    AppBarButton :: 复制​​
+    AppBarButton :: 粘贴​​
+    AppBarButton :: 重命名​​
+    AppBarButton :: 共享
+    AppBarButton :: 删除​​
+    AppBarButton :: 排序
+    AppBarButton :: 查看
+    Button :: 更多选项
+    AppBarButton :: 预览
+=== TOP class='KPromeMainWindow' name='[只读]风翎软壳训练风衣595件10-23.xls - WPS Office' children=63
+    KPromeNewTabButton :: 新建
+    KPromeDocerTabButton :: 稻壳AI模板
+    KLiteClickableLabel :: 文档内按F1，可快速查找并解决办公问题
+    QLabel :: 2026_10_23-21_36_15.xlsx
+    QLabel :: 正在打开文档···
+    KxEtMainWindow :: 风翎软壳训练风衣595件10-23.xls (只读) [兼容模式] - WPS 表格
+    QMainWindow :: KMainDockArea
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+    KxEtMdiSubWindow :: 合同金额明细表.xlsx (只读) *
+    KxEtMdiSubWindow :: 经费预算表(1).xlsx (只读) *
+    KxEtMdiSubWindow :: 2026_10_23-21_36_15.xlsx (只读)
+    KxEtMdiSubWindow :: 风翎软壳训练风衣595件10-23.xls (只读)
+=== TOP class='Chrome_WidgetWin_1' name='飞书' children=676
+    RootView :: 飞书
+    NonClientView :: ContentsView
+    NativeFrameView :: NonClientFrameView
+    LarkClientView :: ClientView
+    BrowserView :: MainWidgetDelegateView
+    BrowserUserViewImpl :: BrowserUserView
+    TabContentsView :: TabContensView
+    HeaderToolbar::HeaderToolbarButton :: PageToolbarBackButton
+    HeaderToolbar::HeaderToolbarButton :: PageToolbarForwardButton
+    HeaderToolbar::HeaderToolbarButton :: PageToolbarReloadButton
+    HeaderToolbar::HeaderToolbarButton :: 相关讨论
+    ToolBarButton :: HeaderToolbarMoreButton
+    HeaderToolbar::HeaderToolbarButton :: 机器人
+    HeaderToolbar::HeaderToolbarButton :: 在浏览器中打开
+    HeaderToolbar::HeaderToolbarButton :: 独立窗口打开
+    ToolBarButton :: HeaderToolbarCloseButton
+    MultiWebView :: MultiWebView - miniprogram:miniprogram-native-fusion:cli_aa079559b3b99bb6
+     :: 综合项目管理系统
+     :: 综
+     :: 综合
+     :: 项目管理系统
+     :: 研发项目协作空间
+     :: 工作台
+    nav-item :: 工作台
+     :: 工时管理
+    nav-item :: 我的工时
+    nav-item :: 工时审批
+    nav-item :: 工时看板
+    nav-item :: 月度台账
+    nav-item :: 工时台账
+     :: 项目管理
+    nav-item :: 项目管理
+    nav-item :: 项目合同
+    nav-item :: 合同收款
+    nav-item :: 合同付款
+    nav-item :: 回款台账
+    nav-item :: 付款计划
+    nav-item :: 经营分析
+    nav-item :: 项目费用
+    nav-item :: 人工成本结转
+    nav-item :: 费用复核
+    nav-item :: 项目看板
+    nav-item :: 供应商管理
+    nav-item :: 客户管理
+     :: 系统管理
+    nav-item :: 集成与通知
+    nav-item :: 权限管理
+    nav-item :: 审批岗位
+    nav-item active :: 基础配置
+     :: 综合项目管理系统
+     :: 工作空间
+     :: /
+     :: 基础配置
+     :: 飞书用户
+     :: 杨阳
+     :: 杨
+    text-button :: 退出
+     :: 系统管理 / 基础配置
+     :: 基础配置
+     :: 维护项目和工时表单中的下拉选项；选项值用于系统存储，显示名称可随时调整。
+    primary :: ＋ 新增选项
+     :: 平铺选项
+    active :: 项目阶段 9 项
+     :: 工时类型 6 项
+     :: 工作状态 4 项
+     :: 项目状态 6 项
+     :: 项目阶段
+     :: 停用后不会出现在新增表单中，已使用的选项不能停用或删除。
+     :: 9 项启用
+     :: 需求
+     :: 值：需求
+     ::  · 系统默认
+     :: 1
+     :: 启用
+    text-button :: 编辑
+    text-button danger-button :: 删除
+     :: 设计
+     :: 值：设计
+     ::  · 系统默认
+     :: 2
+     :: 启用
+    text-button :: 编辑
+    text-button danger-button :: 删除
+     :: 开发
+     :: 值：开发
+     ::  · 系统默认
+     :: 3
+     :: 启用
+    text-button :: 编辑
+    text-button danger-button :: 删除
+     :: 联调
+     :: 值：联调
+     ::  · 系统默认
+     :: 4
+     :: 启用
+    text-button :: 编辑
+    text-button danger-button :: 删除
+     :: 测试
+     :: 值：测试
+     ::  · 系统默认
+     :: 5
+     :: 启用
+    text-button :: 编辑
+    text-button danger-button :: 删除
+     :: 交付
+     :: 值：交付
+     ::  · 系统默认
+     :: 6
+     :: 启用
+    text-button :: 编辑
+    text-button danger-button :: 删除
+     :: 管理
+     :: 值：管理
+     ::  · 系统默认
+     :: 7
+     :: 启用
+    text-button :: 编辑
+    text-button danger-button :: 删除
+     :: 现场
+     :: 值：现场
+     ::  · 系统默认
+     :: 8
+     :: 启用
+    text-button :: 编辑
+    text-button danger-button :: 删除
+     :: 其它
+     :: 值：其它
+     ::  · 系统默认
+     :: 9
+     :: 启用
+    text-button :: 编辑
+    text-button danger-button :: 删除
+     :: 工作日历
+     :: 维护法定假日和调休工作日；未配置日期默认按周一至周五为工作日、周六周日为非工作日。
+     :: 年份
+     :: 年份
+    secondary :: 查询
+    primary :: ＋ 新增日期
+     :: 覆盖 39 天
+     :: 调休工作日 6 天
+     :: 法定假日 33 天
+     :: 工时天数、填报提醒和 T-1 补填提醒均使用该日历。
+     :: 日期
+     :: 类型
+     :: 名称
+     :: 来源
+     :: 属性
+     :: 操作
+     :: 2026-01-01
+     :: 法定假日
+     :: 元旦
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-01-02
+     :: 法定假日
+     :: 元旦
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-01-03
+     :: 法定假日
+     :: 元旦
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-01-04
+     :: 调休工作日
+     :: 元旦调休上班
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-14
+     :: 调休工作日
+     :: 春节调休上班
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-15
+     :: 法定假日
+     :: 春节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-16
+     :: 法定假日
+     :: 春节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-17
+     :: 法定假日
+     :: 春节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-18
+     :: 法定假日
+     :: 春节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-19
+     :: 法定假日
+     :: 春节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-20
+     :: 法定假日
+     :: 春节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-21
+     :: 法定假日
+     :: 春节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-22
+     :: 法定假日
+     :: 春节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-23
+     :: 法定假日
+     :: 春节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-02-28
+     :: 调休工作日
+     :: 春节调休上班
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-04-04
+     :: 法定假日
+     :: 清明节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-04-05
+     :: 法定假日
+     :: 清明节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-04-06
+     :: 法定假日
+     :: 清明节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-05-01
+     :: 法定假日
+     :: 劳动节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-05-02
+     :: 法定假日
+     :: 劳动节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-05-03
+     :: 法定假日
+     :: 劳动节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-05-04
+     :: 法定假日
+     :: 劳动节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-05-05
+     :: 法定假日
+     :: 劳动节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-05-09
+     :: 调休工作日
+     :: 劳动节调休上班
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-06-19
+     :: 法定假日
+     :: 端午节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-06-20
+     :: 法定假日
+     :: 端午节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-06-21
+     :: 法定假日
+     :: 端午节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-09-20
+     :: 调休工作日
+     :: 中秋节调休上班
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-09-25
+     :: 法定假日
+     :: 中秋节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-09-26
+     :: 法定假日
+     :: 中秋节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-09-27
+     :: 法定假日
+     :: 中秋节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-10-01
+     :: 法定假日
+     :: 国庆节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-10-02
+     :: 法定假日
+     :: 国庆节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-10-03
+     :: 法定假日
+     :: 国庆节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-10-04
+     :: 法定假日
+     :: 国庆节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-10-05
+     :: 法定假日
+     :: 国庆节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-10-06
+     :: 法定假日
+     :: 国庆节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-10-07
+     :: 法定假日
+     :: 国庆节
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 2026-10-10
+     :: 调休工作日
+     :: 国庆节调休上班
+     :: 国务院办公厅2026年部分节假日安排
+     :: 内置官方
+     :: 编辑
+    text-button :: 编辑
+     :: 分类体系
+     :: 项目分类按两级树维护：先建项目大类，再在大类下挂项目小类；项目表单按此口径联动。成本归集统一使用 8 项预算项，不再单独维护成本分类。
+    active :: 项目分类树
+     :: 2 个大类
+    secondary :: ＋ 新增项目大类
+     :: 经营项目
+     :: 值：BUSINESS_PROJECT
+     ::  · 系统默认
+     :: 5 个项目小类
+     :: 启用
+    text-button :: 加小类
+    text-button :: 编辑
+    text-button :: 停用
+    text-button danger-button :: 删除
+     :: 委托研发
+     :: ENTRUSTED_RND
+     :: 启用
+    text-button :: 编辑
+    text-button :: 停用
+    text-button danger-button :: 删除
+     :: 设备销售
+     :: EQUIPMENT_SALES
+     :: 启用
+    text-button :: 编辑
+    text-button :: 停用
+    text-button danger-button :: 删除
+     :: 技术服务
+     :: TECHNICAL_SERVICE
+     :: 启用
+    text-button :: 编辑
+    text-button :: 停用
+    text-button danger-button :: 删除
+     :: 机器人施工
+     :: ROBOT_CONSTRUCTION
+     :: 启用
+    text-button :: 编辑
+    text-button :: 停用
+    text-button danger-button :: 删除
+     :: 设备租赁
+     :: EQUIPMENT_RENTAL
+     :: 启用
+    text-button :: 编辑
+    text-button :: 停用
+    text-button danger-button :: 删除
+     :: 研发项目
+     :: 值：RND_PROJECT
+     ::  · 系统默认
+     :: 2 个项目小类
+     :: 启用
+    text-button :: 加小类
+    text-button :: 编辑
+    text-button :: 停用
+    text-button danger-button :: 删除
+     :: 自主研发
+     :: SELF_DEVELOPED_RND
+     :: 启用
+    text-button :: 编辑
+    text-button :: 停用
+    text-button danger-button :: 删除
+     :: 外部申报
+     :: EXTERNAL_DECLARATION
+     :: 启用
+    text-button :: 编辑
+    text-button :: 停用
+    text-button danger-button :: 删除
+     :: 组织审批配置
+     :: 非项目工时按部门负责人审批；审批人是本人时，自动转直属上级。
+     :: 工时审批规则
+     :: 市场部门
+     :: 观摩推广工时、市场营销工时会由该部门负责人审批
+    secondary :: 保存市场部门
+     :: 部门负责人
+     :: 筛选部门/负责人
+     :: 部门
+     :: 负责人
+     :: 操作
+     :: 产品研发部 产品研发部
+     :: 樊公海 · 产品研发部
+     :: 保存
+    text-button :: 保存
+     :: 信息化中心 产品研发部 / 信息化中心
+     :: 杨阳 · 产品研发部 / 信息化中心
+     :: 保存
+    text-button :: 保存
+     :: 应用创新中心 产品研发部 / 应用创新中心
+     :: 牛智祥 · 产品研发部 / 应用创新中心
+     :: 保存
+    text-button :: 保存
+     :: 技术研发中心 产品研发部 / 技术研发中心
+     :: 樊公海 · 产品研发部
+     :: 保存
+    text-button :: 保存
+     :: 人力资源部 人力资源部
+     :: 高家钰 · 人力资源部
+     :: 保存
+    text-button :: 保存
+     :: 售后服务部 售后服务部
+     :: 樊公海 · 产品研发部
+     :: 保存
+    text-button :: 保存
+     :: 市场管理部 市场管理部
+     :: 甘丹 · 技术服务部
+     :: 保存
+    text-button :: 保存
+     :: 技术服务部 技术服务部
+     :: 王卓 · 技术服务部
+     :: 保存
+    text-button :: 保存
+     :: 管理层 管理层
+     :: 易富民 · 管理层
+     :: 保存
+    text-button :: 保存
+     :: 经营管理部 经营管理部
+     :: 彭启航 · 经营管理部
+     :: 保存
+    text-button :: 保存
+     :: 行政管理部 行政管理部
+     :: 唐克强 · 行政管理部
+     :: 保存
+    text-button :: 保存
+     :: 财务管理部 财务管理部
+     :: 闫家蜜 · 财务管理部
+     :: 保存
+    text-button :: 保存
+     :: 人员直属上级
+     :: 筛选人员/部门/上级
+     :: 人员
+     :: 直属上级
+     :: 操作
+     :: 余程倩 市场管理部
+     :: 甘丹 · 技术服务部 飞书同步：甘丹
+     :: 保存
+    text-button :: 保存
+     :: 唐克强 行政管理部
+     :: 易富民 · 管理层 飞书同步：易富民
+     :: 保存
+    text-button :: 保存
+     :: 唐斌 管理层
+     :: 易富民 · 管理层 飞书同步：易富民
+     :: 保存
+    text-button :: 保存
+     :: 彭启航 经营管理部
+     :: 邬静芝 · 管理层 飞书同步：邬静芝
+     :: 保存
+    text-button :: 保存
+     :: 易富民 管理层
+     :: 未设置
+     :: 保存
+    text-button :: 保存
+     :: 李晓天 产品研发部 / 应用创新中心
+     :: 樊公海 · 产品研发部 飞书同步：樊公海
+     :: 保存
+    text-button :: 保存
+     :: 李泰然 行政管理部
+     :: 唐克强 · 行政管理部 飞书同步：唐克强
+     :: 保存
+    text-button :: 保存
+     :: 李盾 市场管理部
+     :: 甘丹 · 技术服务部 飞书同步：甘丹
+     :: 保存
+    text-button :: 保存
+     :: 杜连腾 产品研发部 / 技术研发中心
+     :: 樊公海 · 产品研发部 飞书同步：樊公海
+     :: 保存
+    text-button :: 保存
+     :: 杨阳 产品研发部 / 信息化中心
+     :: 樊公海 · 产品研发部 飞书同步：樊公海
+     :: 保存
+    text-button :: 保存
+     :: 林宗奇 管理层
+     :: 易富民 · 管理层 飞书同步：易富民
+     :: 保存
+    text-button :: 保存
+     :: 樊公海 产品研发部
+     :: 林宗奇 · 管理层 飞书同步：林宗奇
+     :: 保存
+    text-button :: 保存
+     :: 牛智祥 产品研发部 / 应用创新中心
+     :: 樊公海 · 产品研发部 飞书同步：樊公海
+     :: 保存
+    text-button :: 保存
+     :: 王卓 技术服务部
+     :: 甘丹 · 技术服务部 飞书同步：甘丹
+     :: 保存
+    text-button :: 保存
+     :: 甘丹 技术服务部
+     :: 易富民 · 管理层 飞书同步：易富民
+     :: 保存
+    text-button :: 保存
+     :: 甘琴 技术服务部
+     :: 王卓 · 技术服务部 飞书同步：王卓
+     :: 保存
+    text-button :: 保存
+     :: 贺滨瑶 行政管理部
+     :: 唐克强 · 行政管理部 飞书同步：唐克强
+     :: 保存
+    text-button :: 保存
+     :: 贺茂维 财务管理部
+     :: 闫家蜜 · 财务管理部 飞书同步：闫家蜜
+     :: 保存
+    text-button :: 保存
+     :: 邬静芝 管理层
+     :: 易富民 · 管理层 飞书同步：易富民
+     :: 保存
+    text-button :: 保存
+     :: 闫家蜜 财务管理部
+     :: 唐斌 · 管理层 飞书同步：唐斌
+     :: 保存
+    text-button :: 保存
+     :: 陈祥 技术服务部
+     :: 王卓 · 技术服务部 飞书同步：王卓
+     :: 保存
+    text-button :: 保存
+     :: 高家钰 人力资源部
+     :: 易富民 · 管理层 飞书同步：易富民
+     :: 保存
+    text-button :: 保存
+    SideBar :: SideEdgeView
+    ProfileFlexView :: ProfileFlexView
+    ProfileButton :: ProfileButton
+    AvatarButton :: 我的头像
+    CreationButton :: 创建
+    LeadingFlexView :: LeadingFlexView
+    SearchButton :: 搜索（Ctrl＋K）
+    TabBarView :: TabBarView
+    SideBarScrollView :: TabScrollView
+    ScrollContentViewWithDock :: TabScrollContentsView
+    TabButton :: 消息
+    TabButton :: 豆包工作
+    TabButton :: 云文档
+    TabButton :: 推荐
+    TabButton :: 多维表格
+    TabButton :: 视频会议
+    TabButton :: 通讯录
+    TabButton :: 邮箱
+    TabButton :: 日历
+    TabButton :: 权益升级
+    GroupTabButton :: 更多
+    TabButton :: 假勤
+    TabButton :: 审批
+    TabButton :: 综合项目管理系统
+    TabButton :: 审批
+    TabButton :: 审批
+    TrailingFlexView :: TrailingFlexView
+    TenantBarView :: TenantBarView
+    TenantButtonMore :: 更多账号
+    TenantButtonBar :: 新松机器人
+    TenantButtonBar :: 芯烨智创
+    TenantButtonBar :: 测试企业 - 杨阳测试
+    TitleBar :: TitleEdgeView
+    SystemBarView :: SystemBarView
+    Windows10CaptionButton :: 最小化
+    Windows10CaptionButton :: 还原
+    Windows10CaptionButton :: 关闭
+    TitleButton :: HistoryButton
+=== TOP class='CabinetWClass' name='myproject - 文件资源管理器 [ main ↓0 ↑1 ]' children=189
+    ShellTabWindowClass :: myproject
+    StatusBarModuleInner :: 状态栏
+    Element :: 属性字段
+    MetadataLabel :: 28 个项目
+    SelectorNoDefault :: 查看模式
+    SelectorButton :: 详细信息
+    SelectorButton :: 大图标
+    ProperTreeHost :: 控制项宿主
+    SysTreeView32 :: 导航窗格
+    DUIListView :: Shell 文件夹视图
+    UIItemsView :: 项目视图
+    UIViewHeader :: 标题
+    UIColumnHeader :: 名称
+    Button :: 筛选器下拉列表
+    UIColumnHeader :: 大小
+    Button :: 筛选器下拉列表
+    UIColumnHeader :: 类型
+    Button :: 筛选器下拉列表
+    UIColumnHeader :: 修改日期
+    Button :: 筛选器下拉列表
+    UIItem :: .localappdata
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .pnpm-cache
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .pnpm-home
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .skillhub-install
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .venv
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: frontend
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: outputs
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: deploy
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .tmp-v3047
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: dist
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .pytest_cache
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: backend
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .workbuddy
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: _archive
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: __pycache__
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: docs
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: test-artifacts
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: tools
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: security-logs
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: output
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .git
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: start-dev.ps1
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: xinye-nas-deploy-mcp-v1.0.0.zip
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .gitattributes
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: pytest.ini
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: conftest.py
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: .gitignore
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    UIItem :: README.md
+    UIProperty :: 名称
+    UIProperty :: 大小
+    UIProperty :: 类型
+    UIProperty :: 修改日期
+    ListViewItem :: myproject
+    TextBlock :: myproject
+    Button :: 关闭标签页
+    Button :: 添加新标签页
+    AppBarButton :: 后退
+    AppBarButton :: 前进
+    AppBarButton :: 上移到“新加卷 (D:)”(Alt + 向上键)
+    AppBarButton :: 刷新“myproject”(F5)
+    TextBox :: 地址栏
+    FileExplorerExtensions.FirstCrumbStackPanelControl :: 此电脑
+    FileExplorerExtensions.BreadcrumbBarItemControl :: 此电脑
+    TextBlock :: 此电脑
+    FileExplorerExtensions.BreadcrumbBarItemControl :: 新加卷 (D:)
+    TextBlock :: 新加卷 (D:)
+    FileExplorerExtensions.BreadcrumbBarItemControl :: myproject
+    TextBlock :: myproject
+    TextBox ::  在 myproject 中搜索
+    TextBlock ::  在 myproject 中搜索
+    AppBarButton :: 新建
+    AppBarButton :: 剪切​​
+    AppBarButton :: 复制​​
+    AppBarButton :: 粘贴​​
+    AppBarButton :: 重命名​​
+    AppBarButton :: 共享
+    AppBarButton :: 删除​​
+    AppBarButton :: 排序
+    AppBarButton :: 查看
+    Button :: 更多选项
+    AppBarButton :: 预览
+=== TOP class='Progman' name='Program Manager' children=1
+    SysListView32 :: FolderView

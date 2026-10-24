@@ -250,14 +250,20 @@ header{position:sticky;top:0;z-index:60;
 .toolbar .chk input{flex:none;min-width:0}
 .toolbar .chk input{accent-color:var(--brand)}
 .toolbar .sp{flex:1}
-/* 按钱包分组的组头条 */
-.wgroup-hd{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:14px 2px 8px;padding:8px 14px;
-  background:linear-gradient(90deg,#f0faf5,#fff 70%);border:1px solid var(--line);border-radius:10px;
-  font-size:13px;color:var(--text)}
+/* 按钱包分组：组头 = 细线贯穿整行 + 简洁信息行，组间泾渭分明 */
+.wgroup-hd{grid-column:1/-1;display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;
+  margin:26px 0 2px;padding:11px 2px 0;border-top:1px solid #d8e0ea;
+  font-size:12.5px;color:var(--text-2)}
 .wgroup-hd:first-child{margin-top:2px}
 .wgroup-hd .wm{font-weight:600;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
   font-size:13px;letter-spacing:.2px;color:var(--text);user-select:all}
-.wgroup-hd .dot{width:7px;height:7px;border-radius:50%;flex:none;background:var(--up)}
+.wgroup-hd .dot{width:7px;height:7px;border-radius:50%;flex:none}
+.wgroup-hd .dot.on{background:var(--down);box-shadow:0 0 0 3px rgba(16,185,129,.16)}
+.wgroup-hd .dot.mid{background:#b26a00;box-shadow:0 0 0 3px rgba(178,106,0,.14)}
+.wgroup-hd .dot.off{background:var(--up);box-shadow:0 0 0 3px rgba(239,68,68,.16)}
+.wgroup-hd .tag{background:none;border:none;padding:0;font-size:12.5px;color:var(--text-2)}
+.wgroup-hd .tag.wb{color:#2563eb}   /* 待付余额：蓝色文字，不再用底色块 */
+.wgroup-hd .sep2{width:1px;height:12px;background:#d8e0ea;flex:none}
 .toolbar .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
 
 /* ---------- 按天 / 内核行 ---------- */
@@ -707,15 +713,16 @@ function renderRigs(list) {
     const coin = (w0.coin || 'prl').toUpperCase();
     const brands = new Set(rs.map(r => (r.wallet || {}).pool_brand || ''));
     const label = k === '_none' ? '（未设置钱包）' : esc(maskWallet(k));
-    const onlineDot = online === rs.length ? 'var(--up)' : online ? '#b26a00' : 'var(--down)';
-    out.push(`<div class="wgroup-hd"><span class="dot" style="background:${onlineDot}"></span>` +
+    const onlineDot = online === rs.length ? 'on' : online ? 'mid' : 'off';
+    out.push(`<div class="wgroup-hd"><span class="dot ${onlineDot}"></span>` +
       `<span class="wm" title="${k === '_none' ? '' : esc(k)}">${label}</span>` +
+      `<span class="sep2"></span>` +
       `<span class="tag">${coin}</span>` +
       `<span class="tag">${rs.length} 台 · ${online} 在线</span>` +
       `<span class="tag">⛏ ${num(ths, 1)} TH/s · ${num(pw, 0)} W</span>` +
       // 同钱包同池才显示待付余额（跨池余额不互通，混池显示会误导）
       (w0.total != null && brands.size === 1
-        ? `<span class="tag" style="background:#eef4ff">🏦 ${num(w0.total, 4)} ${coin} · ${num(w0.pct, 0)}%</span>` : '') +
+        ? `<span class="tag wb">🏦 待付 ${num(w0.total, 4)} ${coin} · ${num(w0.pct, 0)}%</span>` : '') +
       `</div>`);
     out.push(...rs.map(rigCard));
   }

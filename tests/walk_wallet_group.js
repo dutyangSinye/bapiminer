@@ -45,13 +45,23 @@ async function main() {
   await send('Emulation.setDeviceMetricsOverride',
     { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   await send('Network.setCacheDisabled', { cacheDisabled: true });
-  await send('Page.navigate', { url: URL });
-  await sleep(9000);  // fleet poll + render
 
   const ev = async (expr) => {
     const r = await send('Runtime.evaluate', { expression: expr, returnByValue: true });
     return r.result && r.result.result ? r.result.result.value : null;
   };
+
+  // navigate with retry: fresh Edge profiles may bounce to a welcome page
+  let landed = '';
+  for (let i = 0; i < 4; i++) {
+    const nav = await send('Page.navigate', { url: URL });
+    console.log('nav resp: ' + JSON.stringify(nav.result || nav).slice(0, 200));
+    await sleep(6000);
+    landed = (await ev(`location.href + ' | ' + document.title`)) || '';
+    console.log('nav try ' + i + ': ' + landed.slice(0, 90));
+    if (landed.includes('8099')) break;
+  }
+  await sleep(9000);  // fleet poll + render
 
   const before = await ev(`document.querySelectorAll('.rig-card,[class*=rig]').length`);
   await ev(`const g=document.getElementById('fGroup'); if(g && !g.checked){g.checked=true;render();}`);
