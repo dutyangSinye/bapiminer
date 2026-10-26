@@ -4166,8 +4166,11 @@ def selftest():
     # 1) 命令组装
     for kernel, exe in [("SRBMiner-MULTI", "SRBMiner-MULTI.exe"), ("BzMiner", "bzminer.exe")]:
         d = os.path.join(BASE, "_fake_kernel")
-        os.makedirs(d, exist_ok=True)
-        open(os.path.join(d, exe), "w").close()
+        # 内核目录改成「每内核一个子目录」之后，夹具也必须放进子目录：
+        # build_cmd 走的是 kernel_dir_for()，平铺的假 exe 它找不到。
+        kd = kernel_dir_for(kernel, d)
+        os.makedirs(kd, exist_ok=True)
+        open(os.path.join(kd, exe), "w").close()
         try:
             e, args = build_cmd(kernel, d, "PRL (Pearl)",
                                 "stratum+tcp://prl.kryptex.network:7048",
@@ -4321,7 +4324,13 @@ def selftest():
     # 10) 退出清理：关窗口/托盘退出必须把矿工进程真的结束，不能留在后台继续占卡
     eng2 = MiningEngine({"gamemode": False, "server": "", "token": "", "rig_name": "selftest2"},
                         queue.Queue())
-    kid = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"],
+    # 这里必须用「与产品无关」的常驻进程做靶子。
+    # 原来写的是 sys.executable，源码运行时是 python.exe 没问题；一旦打包成 onefile，
+    # sys.executable 就是 BaPiMiner.exe 本身 —— 于是自检会拉起一个真正的 GUI 实例
+    #（可能还按 autostart_mining 开始挖矿），自检卡死、现场还多个窗口。
+    _ping = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                         "System32", "ping.exe")
+    kid = subprocess.Popen([_ping, "-n", "121", "127.0.0.1"],
                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                            creationflags=0x08000000)
     eng2.proc = kid
