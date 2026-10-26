@@ -78,6 +78,34 @@ def ensure_machine_identity(cfg):
     return copied
 
 
+_heal_state = {"n": 0, "ts": 0.0}
+
+
+def heal_rig_identity(cfg, gap=20.0):
+    """401 自愈（模块级，内核下载/上报都能用）：换接入码；名字被占则加短后缀。
+
+    返回 (新机器名, 新接入码)。中控按「名字 + 接入码」认机器，令牌不匹配直接 401；
+    把客户端目录复制到别的机器、重装系统、换目录都会造成这种不一致。
+    """
+    now = time.time()
+    if now - _heal_state["ts"] < gap:          # 冷却：一次故障别连环改名
+        return (str(cfg.get("rig_name") or socket.gethostname().lower()),
+                str(cfg.get("token") or ""))
+    tries = _heal_state["n"]
+    _heal_state["ts"] = now
+    _heal_state["n"] = tries + 1
+    old_name = str(cfg.get("rig_name") or socket.gethostname().lower())[:20]
+    name = old_name if tries == 0 else ("%s-%s" % (old_name[:15], os.urandom(2).hex()))
+    token = "rig-" + os.urandom(8).hex()
+    cfg["rig_name"] = name
+    cfg["token"] = token
+    if not cfg.get("display_name") or cfg.get("display_name") == old_name:
+        cfg["display_name"] = name
+    save_config(cfg)
+    log_write("401 自愈：重新注册身份 %s（第 %d 次）" % (name, tries + 1))
+    return name, token
+
+
 def save_config(cfg):
     """原子写配置（先写 .tmp 再替换），失败只返回 False。"""
     try:
@@ -90,7 +118,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.4"
+CLIENT_VERSION = "1.13.0.5"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -2015,7 +2043,7 @@ def extract_kernel_zip(zpath, kernel_dir, exe_name, dest_dir=None):
 
 
 def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
-                  force=False, manifest=None):
+                  force=False, manifest=None, cfg=None, _retried=False):
     """确保 kernel_dir 里有所选内核；force=True 时强制拉取中控最新版并覆盖。
 
     返回 (错误信息或 None, 当前版本号)。
@@ -2122,8 +2150,20 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
     except Exception as e:  # noqa: BLE001
         msg = str(e)
         if "401" in msg or "Unauthorized" in msg:
+            # 内核下载也要自愈：换新接入码后立刻重试一次，
+            # 否则会卡在「401 → 重试 → 401」的死循环里（实测每秒一次刷屏）
+            if cfg is not None and not _retried:
+                try:
+                    name, token = heal_rig_identity(cfg)
+                    if emit:
+                        emit(event="log", msg="↻ 接入码被拒，已自动换新身份重试（%s）" % name)
+                    return ensure_kernel(kernel_key, kernel_dir, server, token,
+                                         emit=emit, rig_name=name, force=force,
+                                         manifest=manifest, cfg=cfg, _retried=True)
+                except Exception as e2:  # noqa: BLE001
+                    log_write("内核下载 401 自愈失败: %s" % e2)
             msg = ("本机接入码被中控拒绝（常见于重装系统、更换客户端目录或新旧版本并存）。"
-                   "请在中控该矿机卡片点『🔑 重置接入码』，等待约 15 秒自动重试即可恢复")
+                   "客户端已自动尝试恢复；若仍失败，可在中控该矿机卡片点『🔑 重置接入码』")
         elif "502" in msg or "Bad Gateway" in msg or "timed out" in msg \
                 or "TimeoutError" in msg or "URLError" in msg or "getaddrinfo failed" in msg:
             msg = "中控无法连接（NAS 可能离线/重启中，或网络波动），恢复后会自动重试"
@@ -2269,34 +2309,13 @@ class MiningEngine:
             log_write("配置落盘失败: %s" % e)
 
     def _heal_identity(self, gap=90.0):
-        """401 自愈：自动换接入码重新注册本机身份。
-
-        中控按「机器名 + 接入码」认机器，令牌不匹配直接 401。常见来源：
-        把客户端整个目录复制到另一台机器、重装系统、换客户端目录。
-
-        策略（不再要求用户去中控点「重置接入码」）：
-          第 1 次 —— 只换接入码，名字不变。中控执行过重置时立刻恢复，
-                     也不会在看板上多出一台机器。
-          第 2 次起 —— 名字确实被另一台在役机器占着，加短后缀重新注册，
-                     保证一定能上报成功。
-        """
+        """401 自愈（委托模块级 heal_rig_identity，这里只补 UI 回调）。"""
         now = time.time()
         if now - getattr(self, "_heal_ts", 0.0) < gap:
             return False
-        tries = getattr(self, "_heal_n", 0)
         self._heal_ts = now
-        self._heal_n = tries + 1
-
-        old_name = str(self.cfg.get("rig_name") or socket.gethostname().lower())
-        base = old_name[:20]
-        name = base if tries == 0 else ("%s-%s" % (base[:15], os.urandom(2).hex()))
-        token = "rig-" + os.urandom(8).hex()
-        old_disp = str(self.cfg.get("display_name") or "")
-        self.cfg["rig_name"] = name
-        self.cfg["token"] = token
-        if not old_disp or old_disp in (old_name, base):
-            self.cfg["display_name"] = name
-
+        name, token = heal_rig_identity(self.cfg)
+        self.cfg["rig_name"], self.cfg["token"] = name, token
         cb = getattr(self, "on_identity", None)
         try:
             if cb:
@@ -2307,9 +2326,7 @@ class MiningEngine:
             log_write("身份自愈落盘失败: %s" % e)
         self.emit(event="log",
                   msg="↻ 接入码被中控拒绝，已自动重新注册本机身份：%s（无需手动重置）" % name)
-        log_write("401 自愈：重新注册身份 %s（第 %d 次）" % (name, tries + 1))
         return True
-
     def start(self, cfg):
         """启动引擎线程。已在运行则只更新配置 —— 重复点击「开始」不会再起一个矿工。"""
         self.cfg = dict(cfg)
@@ -2424,7 +2441,7 @@ class MiningEngine:
                                        self.cfg.get("server"), self.cfg.get("token"),
                                        emit=self.emit,
                                        rig_name=self.cfg.get("rig_name") or "",
-                                       force=True)
+                                       force=True, cfg=self.cfg)
             if err:
                 self.emit(event="log", msg="✕ 内核更新失败：%s" % err)
                 return False, err
@@ -2474,7 +2491,8 @@ class MiningEngine:
                 return True, "已在使用内核 %s" % KERNELS[key]["label"]
             err, new_v = ensure_kernel(key, self.cfg.get("kernel_dir") or "",
                                        self.cfg.get("server"), self.cfg.get("token"),
-                                       emit=self.emit, rig_name=self.cfg.get("rig_name") or "")
+                                       emit=self.emit, rig_name=self.cfg.get("rig_name") or "",
+                                       cfg=self.cfg)
             if err:
                 return False, "内核 %s 不可用：%s" % (KERNELS[key]["label"], err)
             old = (KERNELS.get(self.cfg.get("kernel")) or {}).get("label") \
@@ -2595,7 +2613,8 @@ class MiningEngine:
             if "未找到" in str(e) or "请确认内核目录" in str(e):
                 err, _kv = ensure_kernel(self.cfg["kernel"], self.cfg["kernel_dir"],
                                          self.cfg.get("server"), self.cfg.get("token"),
-                                         emit=self.emit, rig_name=self.cfg.get("rig_name") or "")
+                                         emit=self.emit, rig_name=self.cfg.get("rig_name") or "",
+                                         cfg=self.cfg)
                 if not err:
                     try:
                         exe, args = build_cmd(self.cfg["kernel"], self.cfg["kernel_dir"],
@@ -3428,7 +3447,7 @@ def run_gui():
                                     S["fields"]["token"].strip(),
                                     emit=lambda **kw: q.put(kw),
                                     rig_name=S["fields"]["rig_name"].strip() or "",
-                                    force=True)
+                                    force=True, cfg=cfg)
             if err:
                 q.put({"event": "log", "msg": "✕ 内核操作失败：%s" % err})
             else:

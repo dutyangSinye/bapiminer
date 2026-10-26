@@ -78,6 +78,7 @@ class HealIdentityTest(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _engine(self, cfg):
+        mc._heal_state.update({"n": 0, "ts": 0.0})
         eng = mc.MiningEngine(cfg, queue.Queue())
         eng.cfg = dict(cfg)
         return eng
@@ -91,6 +92,7 @@ class HealIdentityTest(unittest.TestCase):
         self.assertNotEqual(eng.cfg["token"], "rig-old")
         first = eng.cfg["token"]
 
+        mc._heal_state["ts"] = 0.0      # 越过模块级冷却，模拟下一次故障
         eng._heal_identity(gap=0)
         self.assertTrue(eng.cfg["rig_name"].startswith("pc-9-"))  # 第二次加后缀
         self.assertLessEqual(len(eng.cfg["rig_name"]), 20)
@@ -108,6 +110,43 @@ class HealIdentityTest(unittest.TestCase):
         eng._heal_identity(gap=0)
         self.assertEqual(seen["name"], "pc-9")
         self.assertTrue(seen["token"].startswith("rig-"))
+
+
+class Kernel401HealTest(unittest.TestCase):
+    """内核下载 401 必须也能自愈（否则会卡在每秒重试的死循环）。"""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.orig = mc.CONFIG_FILE
+        mc.CONFIG_FILE = os.path.join(self.tmp, "client_config.json")
+        mc._heal_state.update({"n": 0, "ts": 0.0})
+
+    def tearDown(self):
+        mc.CONFIG_FILE = self.orig
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_heal_returns_new_identity_and_persists(self):
+        cfg = {"token": "rig-old", "rig_name": "pc-1", "display_name": "pc-1"}
+        name, token = mc.heal_rig_identity(cfg)
+        self.assertEqual(name, "pc-1")
+        self.assertTrue(token.startswith("rig-"))
+        self.assertNotEqual(token, "rig-old")
+        saved = json.load(open(mc.CONFIG_FILE, encoding="utf-8"))
+        self.assertEqual(saved["token"], token)
+
+    def test_second_heal_renames(self):
+        cfg = {"token": "rig-old", "rig_name": "pc-1"}
+        mc.heal_rig_identity(cfg)
+        mc._heal_state["ts"] = 0.0
+        name, _ = mc.heal_rig_identity(cfg)
+        self.assertTrue(name.startswith("pc-1-"))
+
+    def test_cooldown_does_not_hammer(self):
+        cfg = {"token": "rig-old", "rig_name": "pc-1"}
+        mc.heal_rig_identity(cfg)
+        tok = cfg["token"]
+        mc.heal_rig_identity(cfg)          # 冷却期内
+        self.assertEqual(cfg["token"], tok)
 
 
 if __name__ == "__main__":
