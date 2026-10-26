@@ -1196,6 +1196,12 @@ def detect_conflicts(own_pids=(), own_dirs=(), procs=None):
                 continue
             if pid == my_ppid:
                 continue
+            # 同一个 exe 文件 = 我们自己（onefile 的引导进程/主进程，或刚被替换的旧进程）。
+            # 单实例互斥锁已经保证全机只有一个客户端在跑，这里再做一次路径比对：
+            # 启动瞬间进程表可能还没写全父子关系，仅靠 ppid 会把另一半误报成
+            # 「重复实例」，用户看到的就是「检测到本程序重复实例」的无意义警告。
+            if my_path and np == my_path:
+                continue
             if my_path and np == my_path and _is_same_instance_family(pid, me, procs):
                 continue
             out.append({"pid": pid, "name": name, "label": "BaPiMiner 重复实例",
