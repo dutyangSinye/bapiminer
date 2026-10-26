@@ -4,7 +4,7 @@ import base64
 import sys
 import paramiko
 
-HOST, PORT = "nas.sinyerobot.com", 10000
+HOST, PORT = "bapimine.click", 10000
 USER, PW = "13301116664", "YYyy..83"
 LOCAL = r"C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs\server"
 REMOTE_DIR = "/data_7HKERMAF/minrigs"

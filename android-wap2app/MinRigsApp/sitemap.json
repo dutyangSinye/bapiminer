@@ -18,12 +18,12 @@
     },
     "pages": [
         {
-            "webviewId": "__W2A__nas.sinyerobot.com",//首页
+            "webviewId": "__W2A__bapimine.click",//首页
             "matchUrls": [
                 {
-                    "href": "http://nas.sinyerobot.com:8099"
+                    "href": "http://bapimine.click:8099"
                 }, {
-                    "href": "http://nas.sinyerobot.com:8099/"
+                    "href": "http://bapimine.click:8099/"
                 }
             ],
             "webviewParameter": {

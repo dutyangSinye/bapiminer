@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import paramiko
 
-HOST, PORT = "nas.sinyerobot.com", 10000
+HOST, PORT = "bapimine.click", 10000
 USER, PW = "13301116664", "YYyy..83"
 
 py = (

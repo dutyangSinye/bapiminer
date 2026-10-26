@@ -34,7 +34,7 @@ App({
         console.log('hide');
     }
 });
-Page('__W2A__nas.sinyerobot.com', { //首页扩展配置
+Page('__W2A__bapimine.click', { //首页扩展配置
     onShow: function() {
 
     },

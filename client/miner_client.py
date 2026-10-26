@@ -584,7 +584,8 @@ def _default_pool_url():
 
 
 SERVER_PRIMARY = "http://bapimine.click:8099"        # 新域名（默认）
-SERVER_LEGACY = "http://mine.sinyerobot.com:8099"    # 老域名：长期保留，已有矿机靠它不断
+SERVER_LEGACY = os.environ.get("BAPIMINER_SERVER_FALLBACK", "").strip()
+                      # 可选回退入口：通过环境变量注入，仓库里不写死任何备选域名
 
 
 def pick_default_server(timeout=2.5):
@@ -595,6 +596,8 @@ def pick_default_server(timeout=2.5):
     连不上就退回老域名 —— 老域名不撤，所以任何时刻都有可用入口。
     """
     for url in (SERVER_PRIMARY, SERVER_LEGACY):
+        if not url:
+            continue
         try:
             http_json(url.rstrip("/") + "/api/health", timeout=timeout)
             return url

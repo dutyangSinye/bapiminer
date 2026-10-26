@@ -3126,9 +3126,14 @@ class Handler(BaseHTTPRequestHandler):
             if cmd not in {"restart_miner", "start_miner", "stop_miner",
                            "gamemode_on", "gamemode_off", "update_kernel",
                            "update_client", "set_pool", "set_kernel",
-                           "set_display_name"}:
+                           "set_display_name", "set_server"}:
                 return self._json({"ok": False, "error": "未知命令: %s" % cmd}, 400)
-            if cmd == "set_pool":
+            if cmd == "set_server":
+                srv = str(arg.get("server") or "").strip().rstrip("/")
+                if not (srv.startswith("http://") or srv.startswith("https://")):
+                    return self._json({"ok": False,
+                                       "error": "中控地址必须以 http:// 或 https:// 开头"}, 400)
+            elif cmd == "set_pool":
                 if not valid_pool_url(str(arg.get("pool_url") or "")):
                     return self._json({"ok": False,
                                        "error": "矿池地址格式应为 stratum+tcp://主机:端口"}, 400)

@@ -98,12 +98,13 @@ python deploy/release_client.py --version 1.13.0.1 \
 
 | 用途 | 地址 |
 |---|---|
-| 主域名（新） | `http://bapimine.click:8099` |
-| 老域名（**长期保留**） | `http://mine.sinyerobot.com:8099` |
+| 中控地址 | `http://bapimine.click:8099` |
+| 旧入口 | 仍由服务器侧保留（**不写入本仓库**），老矿机靠它不间断 |
 
-老域名**不能撤**：已经装好的矿机把中控地址写在各自的 `client_config.json` 里，
-撤了 DNS 它们就集体失联。新装客户端默认用新域名，启动时会先探活、
-连不上就退回老域名（见 `client/miner_client.py::pick_default_server`）。
+旧入口**不能撤**：已经装好的矿机把中控地址写在各自的 `client_config.json` 里，
+撤了 DNS 它们就集体失联。新装客户端默认用新域名，启动时会先探活
+（见 `client/miner_client.py::pick_default_server`）；备选入口用环境变量
+`BAPIMINER_SERVER_FALLBACK` 注入，仓库里不写死任何备选域名。
 
 已有矿机切到新域名有两条路：
 

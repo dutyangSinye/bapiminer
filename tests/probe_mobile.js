@@ -4,7 +4,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function main() {
   const targets = await (await fetch(`http://127.0.0.1:${CDP}/json`)).json();
-  const t = targets.find(x => x.type === 'page' && x.url.includes('nas.sinyerobot.com'));
+  const t = targets.find(x => x.type === 'page' && x.url.includes('bapimine.click'));
   if (!t) { console.log('NO TAB', JSON.stringify(targets.map(x => x.url))); return; }
   const ws = new WebSocket(t.webSocketDebuggerUrl);
   await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
