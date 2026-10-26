@@ -5,7 +5,7 @@ import json
 import urllib.request
 
 req = urllib.request.Request(
-    "http://116.169.217.29:8099/api/fleet",
+    "http://%s:8099/api/fleet" % os.environ.get("MINRIGS_HOST", ""),
     headers={"X-Admin-Token": os.environ.get("MINRIGS_ADMIN_TOKEN", "adm_REPLACE_ME")})
 d = json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
 t = d.get("total") or {}

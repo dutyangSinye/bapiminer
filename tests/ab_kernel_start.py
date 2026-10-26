@@ -12,7 +12,7 @@ import time
 EXE = r"D:\mine\kernels\SRBMiner-MULTI.exe"
 ARGS = ["--algorithm", "pearlhash",
         "--pool", "stratum+tcp://prl-hk.kryptex.network:7048",
-        "--wallet", "prl1plthdf0l9mmpnvr3zlyqqk5jd38hzz0yue678kwmw2z6kg6l7u8nqfv7y38.dutyangbim",
+        "--wallet", os.environ.get("MINRIGS_TEST_WALLET", ""),
         "--api-enable", "--api-port", "21550", "--disable-cpu"]
 CWD = os.path.dirname(EXE)
 

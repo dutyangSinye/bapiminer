@@ -16,7 +16,7 @@ PY = r"C:\Users\Admin\.workbuddy\binaries\python\versions\3.13.12\python.exe"
 SRV = r"C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs\server"
 SMOKE = r"C:\Users\Admin\AppData\Local\Temp\minrigs_smoke"
 PORT = 18123
-WALLET = "prl1plthdf0l9mmpnvr3zlyqqk5jd38hzz0yue678kwmw2z6kg6l7u8nqfv7y38"
+WALLET = os.environ.get("MINRIGS_TEST_WALLET", "")
 
 # 本机有系统代理，访问 127.0.0.1 必须绕过
 os.environ["no_proxy"] = "127.0.0.1,localhost"

@@ -6,7 +6,7 @@ import time
 import urllib.request
 
 TOK = os.environ.get("MINRIGS_ADMIN_TOKEN", "adm_REPLACE_ME")
-BASE = "http://116.169.217.29:8099"
+BASE = "http://%s:8099" % os.environ.get("MINRIGS_HOST", "")
 
 
 def api(path, method="GET", body=None):
@@ -18,7 +18,9 @@ def api(path, method="GET", body=None):
     return json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
 
 
-print("== 下发 update_client（广播 3 台）==")
+TARGET = os.environ.get("TARGET_CLIENT_VERSION", "1.13.0.0")
+
+print("== 下发 update_client（广播）==")
 r = api("/api/command", "POST", {"rig": "*", "cmd": "update_client"})
 print(json.dumps(r, ensure_ascii=False))
 
@@ -33,8 +35,8 @@ while time.time() - t0 < 300:
                              or (rig.get("snapshot") or {}).get("client_version")
                              or "?")
     print("[%3ds] %s" % (int(time.time() - t0), json.dumps(vers, ensure_ascii=False)))
-    if all(v == "1.12.0.3" for v in vers.values()) and vers:
-        print("== 全部升级到 1.12.0.3 ==")
+    if all(v == TARGET for v in vers.values()) and vers:
+        print("== 全部升级到 %s ==" % TARGET)
         break
 else:
     print("== 超时：仍有 rig 未升级 ==")

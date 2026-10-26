@@ -4,7 +4,7 @@ import os, paramiko
 
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("116.169.217.29", 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=15)
+ssh.connect(os.environ.get("MINRIGS_HOST", ""), 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=15)
 cmd = r"""
 echo '--- /tmp/wildrig_dl.log ---'
 cat /tmp/wildrig_dl.log 2>/dev/null || echo '(no log)'

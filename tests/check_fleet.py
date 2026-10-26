@@ -4,7 +4,7 @@ import os, paramiko, json, sys
 
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("116.169.217.29", 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=15)
+ssh.connect(os.environ.get("MINRIGS_HOST", ""), 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=15)
 cmd = r"""
 cd /opt/minrigs
 TOK=$(python3 -c "import json;print(json.load(open('config.json'))['admin_token'])" 2>/dev/null)

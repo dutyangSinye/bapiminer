@@ -7,7 +7,7 @@ import time
 
 import paramiko
 
-HOST, PORT, USER, PW = "116.169.217.29", 22, "root", os.environ.get("MINRIGS_SSH_PASS", "")
+HOST, PORT, USER, PW = os.environ.get("MINRIGS_HOST", ""), 22, "root", os.environ.get("MINRIGS_SSH_PASS", "")
 LOCAL_SRV = r"C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs\server"
 STAMP = sys.argv[1] if len(sys.argv) > 1 else "20261023"
 

@@ -10,8 +10,10 @@ import json
 
 import os, paramiko
 
-HOST, USER, PW = "116.169.217.29", "root", os.environ.get("MINRIGS_SSH_PASS", "")
-WALLET = "prl1plthdf0l9mmpnvr3zlyqqk5jd38hzz0yue678kwmw2z6kg6l7u8nqfv7y38"
+HOST, USER, PW = os.environ.get("MINRIGS_HOST", ""), "root", os.environ.get("MINRIGS_SSH_PASS", "")
+WALLET = os.environ.get("MINRIGS_TEST_WALLET", "")
+if not WALLET:
+    raise SystemExit("请先设置 MINRIGS_TEST_WALLET")
 
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -58,7 +60,7 @@ for r in d.get('rigs',[]):
 
 print("########## 3. Kryptex Pool API 直查 ##########")
 print(run(r'''
-W=prl1plthdf0l9mmpnvr3zlyqqk5jd38hzz0yue678kwmw2z6kg6l7u8nqfv7y38
+W=__WALLET__
 for ep in balance stats payouts; do
   echo "=== $ep ==="
   curl -s --max-time 25 "https://pool.kryptex.com/prl/api/v1/miner/$ep/$W" | head -c 3000
@@ -74,6 +76,6 @@ for p in pts[-10:]:
     print(datetime.datetime.utcfromtimestamp(ts).strftime('%Y-%m-%d %H:%M UTC'), '->', p.get('reward'))
 print('sum last 7 UTC days:', sum(p.get('reward',0) for p in pts[-7:]))
 "
-''', timeout=150))
+'''.replace("__WALLET__", WALLET), timeout=150))
 
 ssh.close()

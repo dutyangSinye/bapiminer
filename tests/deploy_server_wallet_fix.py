@@ -5,7 +5,7 @@
 """
 import json, os, time, paramiko
 
-HOST = "116.169.217.29"
+HOST = __import__('os').environ.get("MINRIGS_HOST", "")
 USER = "root"
 PASS = os.environ.get("MINRIGS_SSH_PASS", "")
 LOCAL = r"C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs"

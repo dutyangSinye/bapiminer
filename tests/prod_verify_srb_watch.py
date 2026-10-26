@@ -5,7 +5,7 @@ import time
 import urllib.request
 
 TOK = os.environ.get("MINRIGS_ADMIN_TOKEN", "adm_REPLACE_ME")
-BASE = "http://116.169.217.29:8099"
+BASE = "http://%s:8099" % __import__('os').environ.get("MINRIGS_HOST", "")
 
 
 def api(path, method="GET", body=None):

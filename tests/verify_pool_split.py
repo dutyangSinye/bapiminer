@@ -10,7 +10,7 @@ TOK = os.environ.get("MINRIGS_ADMIN_TOKEN", "adm_REPLACE_ME")
 
 def api(path):
     req = urllib.request.Request(
-        "http://116.169.217.29:8099" + path,
+        "http://%s:8099" % os.environ.get("MINRIGS_HOST", "") + path,
         headers={"X-Admin-Token": TOK})
     return json.loads(urllib.request.urlopen(req, timeout=25).read().decode())
 

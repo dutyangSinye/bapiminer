@@ -5,12 +5,12 @@ import paramiko
 
 cli = paramiko.SSHClient()
 cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-cli.connect("116.169.217.29", 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=25,
+cli.connect(__import__('os').environ.get("MINRIGS_HOST", ""), 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=25,
             look_for_keys=False, allow_agent=False)
 
 PY = r'''
 import json, urllib.request
-W = "prl1plthdf0l9mmpnvr3zlyqqk5jd38hzz0yue678kwmw2z6kg6l7u8nqfv7y38"
+W = __import__('os').environ.get("MINRIGS_TEST_WALLET", "")
 req = urllib.request.Request(
     "https://api.prlscan.com/v1/addresses/%s/txs?limit=5" % W,
     headers={"User-Agent": "bapiminer/1.0"})

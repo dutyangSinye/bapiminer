@@ -7,7 +7,7 @@ RIGS = sys.argv[2].split(",") if len(sys.argv) > 2 else ["dutyangbim", "dutyangs
 
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("116.169.217.29", 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=15)
+ssh.connect(os.environ.get("MINRIGS_HOST", ""), 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=15)
 
 
 def run(cmd, timeout=30):

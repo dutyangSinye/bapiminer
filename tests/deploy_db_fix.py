@@ -6,7 +6,7 @@ LOCAL = r"C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs\server\server.py"
 
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("116.169.217.29", 22, "root",
+ssh.connect(__import__('os').environ.get("MINRIGS_HOST", ""), 22, "root",
             os.environ.get("MINRIGS_SSH_PASS", ""), timeout=15)
 
 

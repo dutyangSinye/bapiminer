@@ -6,7 +6,7 @@ import time
 import urllib.request
 
 TOK = os.environ.get("MINRIGS_ADMIN_TOKEN", "adm_REPLACE_ME")
-BASE = "http://116.169.217.29:8099"
+BASE = "http://%s:8099" % __import__('os').environ.get("MINRIGS_HOST", "")
 KRYP = "stratum+tcp://prl-hk.kryptex.network:7048"
 PEARL = "stratum+tcp://pool.pearlhash.xyz:9000"
 

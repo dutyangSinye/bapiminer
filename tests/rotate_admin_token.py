@@ -5,7 +5,7 @@ import paramiko, os, secrets, time
 new_tok = "adm_" + secrets.token_hex(8)
 ssh = paramiko.SSHClient()
 ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-ssh.connect("116.169.217.29", 22, "root",
+ssh.connect(__import__('os').environ.get("MINRIGS_HOST", ""), 22, "root",
             os.environ.get("MINRIGS_SSH_PASS", ""), timeout=15)
 
 py = (

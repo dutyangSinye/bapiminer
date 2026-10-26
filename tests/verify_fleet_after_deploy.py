@@ -7,7 +7,7 @@ import paramiko
 TOK = os.environ.get("MINRIGS_ADMIN_TOKEN", "adm_REPLACE_ME")
 
 req = urllib.request.Request(
-    "http://116.169.217.29:8099/api/fleet",
+    "http://%s:8099/api/fleet" % __import__('os').environ.get("MINRIGS_HOST", ""),
     headers={"X-Admin-Token": TOK})
 d = json.loads(urllib.request.urlopen(req, timeout=20).read().decode())
 t = d.get("total") or {}
@@ -17,7 +17,7 @@ print("wallet_paid:", json.dumps(t.get("wallet_paid")))
 
 cli = paramiko.SSHClient()
 cli.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-cli.connect("116.169.217.29", 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=25,
+cli.connect(__import__('os').environ.get("MINRIGS_HOST", ""), 22, "root", os.environ.get("MINRIGS_SSH_PASS", ""), timeout=25,
             look_for_keys=False, allow_agent=False)
 si, so, se = cli.exec_command(
     "docker logs --since 5m minrigs 2>&1 | grep -iE 'wallet|chain|Traceback' | tail -12",

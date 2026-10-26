@@ -9,7 +9,7 @@ import time
 EXE = r"D:\mine\kernels\SRBMiner-MULTI.exe"
 CWD = os.path.dirname(EXE)
 POOL = "stratum+tcp://prl-hk.kryptex.network:7048"
-WALLET = "prl1plthdf0l9mmpnvr3zlyqqk5jd38hzz0yue678kwmw2z6kg6l7u8nqfv7y38.dutyangbim"
+WALLET = os.environ.get("MINRIGS_TEST_WALLET", "")
 
 CASES = [
     ("--help", ["--help"]),
