@@ -10,7 +10,7 @@ cat > /opt/minrigs/docker-compose.yml <<'EOF'
 # 扒皮矿工中控服务 (minrigs)
 # 部署：cd /opt/minrigs && docker compose up -d --build   （本机无 compose 插件时用 deploy.sh）
 # 升级：替换 server.py / static/ 后 docker restart minrigs
-# 端口：8099（容器内同端口），对外由 nginx 反代 mine.sinyerobot.com
+# 端口：8099（容器内同端口），对外由 nginx 反代 bapimine.click
 services:
   minrigs:
     build: .

@@ -3,7 +3,7 @@
 import json, os, time, urllib.request, urllib.error
 
 TOKEN = os.environ.get("TOKEN", "")
-BASE = "http://mine.sinyerobot.com:8099"
+BASE = "http://bapimine.click:8099"
 
 
 def api(path, payload=None, timeout=15):

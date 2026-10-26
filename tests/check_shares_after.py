@@ -3,7 +3,7 @@
 import json, os, time, urllib.request, paramiko
 
 TOKEN = os.environ.get("TOKEN", "")
-BASE = "http://mine.sinyerobot.com:8099"
+BASE = "http://bapimine.click:8099"
 req = urllib.request.Request(BASE + "/api/fleet",
                              headers={"User-Agent": "bapiminer-check/1.0",
                                       "X-Admin-Token": TOKEN})

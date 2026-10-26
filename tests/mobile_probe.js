@@ -1,6 +1,6 @@
 // 手机视口（390x844）探查 KPI 网格为何退化成单列
 const PORT = parseInt(process.argv[2] || "9335", 10);
-const URL = process.argv[3] || "http://mine.sinyerobot.com:8099/";
+const URL = process.argv[3] || "http://bapimine.click:8099/";
 const TOKEN = process.argv[4] || "";
 
 function httpGet(path) {

@@ -1,7 +1,7 @@
 // 读取 live DOM 中卡片标签行与内核标签的原文，判定渲染版本
 const fs = require("fs");
 const PORT = parseInt(process.argv[2] || "9335", 10);
-const URL = process.argv[3] || "http://mine.sinyerobot.com:8099/";
+const URL = process.argv[3] || "http://bapimine.click:8099/";
 const TOKEN = process.argv[4] || "";
 
 function httpGet(path) {

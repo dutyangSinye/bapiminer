@@ -9,7 +9,7 @@ import os
 import json
 import urllib.request
 
-BASE = "http://mine.sinyerobot.com:8099"
+BASE = "http://bapimine.click:8099"
 TOKEN = os.environ.get("MINRIGS_ADMIN_TOKEN", "adm_REPLACE_ME")
 
 

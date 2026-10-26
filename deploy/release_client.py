@@ -31,8 +31,8 @@ EXE = r"C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs\client\dist\BaPiMin
 REMOTE_EXE = "/opt/minrigs/data/downloads/BaPiMiner.exe"
 REMOTE_REL = "/opt/minrigs/data/client_release.json"
 REMOTE_MANIFEST = "/opt/minrigs/data/signed_manifest.json"
-PUBLIC_API = "http://mine.sinyerobot.com:8099/api/client_latest"
-PUBLIC_HEALTH = "http://mine.sinyerobot.com:8099/api/health"
+PUBLIC_API = "http://bapimine.click:8099/api/client_latest"
+PUBLIC_HEALTH = "http://bapimine.click:8099/api/health"
 
 
 def _sha256_file(path):

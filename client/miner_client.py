@@ -90,7 +90,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.3"
+CLIENT_VERSION = "1.13.0.4"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -583,6 +583,26 @@ def _default_pool_url():
     return "stratum+tcp://prl-hk.kryptex.network:7048"
 
 
+SERVER_PRIMARY = "http://bapimine.click:8099"        # 新域名（默认）
+SERVER_LEGACY = "http://mine.sinyerobot.com:8099"    # 老域名：长期保留，已有矿机靠它不断
+
+
+def pick_default_server(timeout=2.5):
+    """首次启动时挑一个能连上的中控。
+
+    为什么不在打包时写死新域名就完事：DNS 切换有传播时间，新域名还没生效时
+    全新安装的矿机就会「连不上中控」，等于装了个死客户端。这里先探新域名，
+    连不上就退回老域名 —— 老域名不撤，所以任何时刻都有可用入口。
+    """
+    for url in (SERVER_PRIMARY, SERVER_LEGACY):
+        try:
+            http_json(url.rstrip("/") + "/api/health", timeout=timeout)
+            return url
+        except Exception:  # noqa: BLE001
+            continue
+    return SERVER_PRIMARY
+
+
 DEFAULT_CFG = {
     "kernel": "SRBMiner-MULTI",
     "kernel_dir": _default_kernel_dir(),
@@ -596,7 +616,7 @@ DEFAULT_CFG = {
     "games": [],           # 额外自定义游戏进程名（小写 exe 名，如 mygame.exe）
     "ignore_miners": [],   # 已确认忽略的「其他挖矿程序」进程名
     "check_other_miners": True,   # 检测本机其他挖矿程序并提示关闭
-    "server": "http://mine.sinyerobot.com:8099",  # 中控地址已内置，留空不上报
+    "server": SERVER_PRIMARY,  # 中控地址已内置，留空不上报
     "token": "",           # 中控接入口令（留空则自动生成随机口令）
     "rig_name": socket.gethostname().lower(),
     # 中控显示名称（可改；rig_name 是机器身份不可改）
@@ -2225,6 +2245,7 @@ class MiningEngine:
         self.kernel_ver = ""         # 当前内核版本（由 ensure_kernel 写入）
         self._cfg_ver = 0            # 配置版本号：中控改配置时 +1，主循环据此重建启动命令
         self.persist = None          # 配置落盘回调（GUI 注入；测试环境可为 None）
+        self.on_server = None        # 中控地址变更回调（set_server 命令用）
         self._threads = []
         self.starts = 0
         self.stats = {"ths": 0.0, "accepted": 0, "rejected": 0, "uptime": None,
@@ -2355,6 +2376,21 @@ class MiningEngine:
     def _handle_cmd(self, cmd, arg=None):
         """执行中控命令，返回 (ok, 备注)。arg 为命令自带参数（JSON 对象）。"""
         arg = arg or {}
+        if cmd == "set_server":
+            url = str(arg.get("server") or "").strip().rstrip("/")
+            if not (url.startswith("http://") or url.startswith("https://")):
+                return False, "中控地址必须以 http:// 或 https:// 开头"
+            self.cfg["server"] = url
+            cb = getattr(self, "on_server", None)
+            try:
+                if cb:
+                    cb(url)             # GUI 注入：同步状态仓 + 落盘
+                else:
+                    save_config(self.cfg)
+            except Exception as e:  # noqa: BLE001
+                log_write("中控地址落盘失败: %s" % e)
+            self.emit(event="log", msg="中控地址已切换为 %s（中控下发）" % url)
+            return True, "中控地址已切换为 %s" % url
         if cmd == "gamemode_off":
             self.cfg["gamemode"] = False
             if self.paused:
@@ -3005,13 +3041,18 @@ def run_gui():
         log_write("内核目录整理异常: %r" % e)
 
     cfg = {}
-    if os.path.isfile(CONFIG_FILE):
+    _fresh_install = not os.path.isfile(CONFIG_FILE)
+    if not _fresh_install:
         try:
             cfg = json.load(open(CONFIG_FILE, encoding="utf-8"))
         except Exception:  # noqa: BLE001
             cfg = {}
     for k, v in DEFAULT_CFG.items():
         cfg.setdefault(k, v)
+    if _fresh_install:
+        # 全新安装：探一下新域名，没生效就用老域名，避免装完连不上中控
+        cfg["server"] = pick_default_server()
+        log_write("首次启动，选择中控入口：%s" % cfg["server"])
     if not cfg.get("server"):
         cfg["server"] = DEFAULT_CFG["server"]
     # 内核目录检测一径条件：
@@ -3146,6 +3187,18 @@ def run_gui():
         append_log("本机已用新身份「%s」重新接入中控" % name)
 
     engine.on_identity = sync_identity
+
+    def sync_server(url):
+        """中控下发 set_server 后：更新状态仓 + 落盘（下次启动也走新地址）。"""
+        cfg["server"] = url
+        try:
+            S["fields"]["server"] = url
+        except Exception:  # noqa: BLE001
+            pass
+        persist_cfg()
+        append_log("中控地址已切换为 %s（中控下发，已保存）" % url)
+
+    engine.on_server = sync_server
 
     def parse_games(txt):
         return [x.strip().lower() for x in re.split(r"[,，;；\s]+", txt or "") if x.strip()]
@@ -3943,7 +3996,7 @@ def run_gui():
         elif op == "open_dashboard":
             import webbrowser
             webbrowser.open((S["fields"]["server"].strip()
-                             or "http://mine.sinyerobot.com:8099") + "/")
+                             or SERVER_PRIMARY) + "/")
         elif op == "open_kernel_dir":
             # 打开「当前选定内核」的子目录（不是根目录：
             # 各内核以及其附属文件单独一个目录，加壳自校验不会误报「

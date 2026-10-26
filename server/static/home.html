@@ -11,7 +11,7 @@
    App 内嵌 WebView 兜底跳转
    ------------------------------------------------------------
    根路径现在是官网首页，但已安装的 uniapp APK 里 <web-view> 硬编码指向
-   http://mine.sinyerobot.com:8099/（根路径）。服务端已按 UA 识别 App 流量
+   http://bapimine.click:8099/（根路径）。服务端已按 UA 识别 App 流量
    直接返回群控台（server.py 的 _is_app_webview），这里是第二道保险：
    万一 App 用了自定义 UA 绕过了服务端识别，页面加载后仍会被导回群控台。
 

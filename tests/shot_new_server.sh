@@ -12,7 +12,7 @@ rm -rf "$TMP"
   --remote-debugging-port=9344 --user-data-dir="$TMP" about:blank > /tmp/edge-mine.log 2>&1 &
 sleep 6
 
-"$NODE" "$SCRIPT" 9344 "http://mine.sinyerobot.com:8099/" "${ADMIN_TOKEN:-adm_REPLACE_ME}" "$OUT"
+"$NODE" "$SCRIPT" 9344 "http://bapimine.click:8099/" "${ADMIN_TOKEN:-adm_REPLACE_ME}" "$OUT"
 RC=$?
 
 "$NODE" -e "fetch('http://127.0.0.1:9344/json/version').then(r=>r.json()).then(v=>{const ws=new WebSocket(v.webSocketDebuggerUrl);ws.onopen=()=>ws.send(JSON.stringify({id:1,method:'Browser.close',params:{}}));ws.onmessage=()=>process.exit(0);setTimeout(()=>process.exit(0),3000)}).catch(()=>process.exit(0))"

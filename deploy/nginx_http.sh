@@ -4,10 +4,10 @@ mkdir -p /opt/minrigs/nginx/conf.d /opt/minrigs/certs /opt/minrigs/www
 
 echo "=== 1. http-only conf ==="
 cat > /opt/minrigs/nginx/conf.d/mine.conf <<'EOF'
-# mine.sinyerobot.com -> minrigs:8099  (HTTP 阶段，签发证书用)
+# bapimine.click -> minrigs:8099  (HTTP 阶段，签发证书用)
 server {
     listen 80;
-    server_name mine.sinyerobot.com;
+    server_name bapimine.click;
 
     location /.well-known/acme-challenge/ {
         root /var/www/certbot;
@@ -39,5 +39,5 @@ docker ps --filter name=minrigs-nginx --format '{{.Names}} | {{.Status}}'
 docker logs --tail 6 minrigs-nginx 2>&1
 
 echo "=== 3. probe via IP host header ==="
-curl -s -o /dev/null -w "IP+Host -> %{http_code}\n" -H "Host: mine.sinyerobot.com" --max-time 8 http://127.0.0.1/
+curl -s -o /dev/null -w "IP+Host -> %{http_code}\n" -H "Host: bapimine.click" --max-time 8 http://127.0.0.1/
 curl -s -o /dev/null -w "acme path -> %{http_code}\n" --max-time 8 http://127.0.0.1/.well-known/acme-challenge/probe

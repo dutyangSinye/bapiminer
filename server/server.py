@@ -2517,7 +2517,7 @@ class Handler(BaseHTTPRequestHandler):
         """判断请求是否来自已安装的安卓 App 内嵌 WebView。
 
         ★ 背景：uniapp 的 <web-view> 与 wap2app 的 launch_path 都硬编码指向
-          http://mine.sinyerobot.com:8099/（根路径）。官网首页占用了根路径后，
+          http://bapimine.click:8099/（根路径）。官网首页占用了根路径后，
           老 App 打开会变成营销页 —— 所以这里识别出 App 流量，仍返回群控台。
 
         识别依据（命中任一即认为是 App）：
@@ -2808,7 +2808,7 @@ class Handler(BaseHTTPRequestHandler):
         #
         #   为什么这样分：官网要给外部人看，登录页不是首页。
         #   但已安装的 uniapp APK 里 <web-view> 硬编码指向
-        #   http://mine.sinyerobot.com:8099/（根路径），老 APK 打开会变成营销页。
+        #   http://bapimine.click:8099/（根路径），老 APK 打开会变成营销页。
         #   对策是双保险：
         #     ① 服务端按 UA 识别 HTML5+ 运行时（uniapp/wap2app 的 WebView），
         #        仍把根路径返回群控台 —— 老 App 完全不受影响；

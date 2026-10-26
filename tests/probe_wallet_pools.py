@@ -3,7 +3,7 @@
 import json, os, urllib.request
 
 TOKEN = os.environ.get("TOKEN", "")
-URL = "http://mine.sinyerobot.com:8099/api/fleet"
+URL = "http://bapimine.click:8099/api/fleet"
 req = urllib.request.Request(URL, headers={"User-Agent": "bapiminer-check/1.0",
                                            "X-Admin-Token": TOKEN})
 with urllib.request.urlopen(req, timeout=20) as r:
