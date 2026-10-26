@@ -286,6 +286,9 @@ function applyBoot(d) {
   renderFields(); renderToggles();
   apply({ t: "runbtn", on: d.running });
   if (d.pill) apply({ t: "pill", text: d.pill.text, kind: d.pill.kind });
+  // 实时指标（算力/份额/温度/日收益/运行时长）：快照直接带上，
+  // 否则关窗重开后要等引擎下一次 stats 推送（10 秒）才有数字
+  if (d.metrics) apply(d.metrics);
   if (d.kchips) renderKchips(d.kchips);
   if (d.pool) renderPool(d.pool);
   if (d.kernel_rows) renderKerRows(d.kernel_rows);

@@ -2112,6 +2112,39 @@ def estimate_income(model, ths, server="", token="", rig=""):
     return None
 
 
+# ---------------------------------------------------------------- 界面快照
+
+def metrics_from_stats(st):
+    """把引擎 stats 快照格式化成 UI 的 metrics 事件。
+
+    实时推送（handle_event）与 boot 全量快照共用这一份，
+    保证「窗口重开后第一屏」和「运行中刷新的那一屏」格式完全一致。
+
+    为什么 boot 必须带它：窗口关掉再打开时，新页面的 poll 游标从**当前**开始，
+    历史推送已经过去、也不会重放；而引擎每 10 秒才 emit 一次 stats。
+    少了这份快照，重开窗口后算力/份额/温度会空白最长 10 秒才跳出来。
+    """
+    st = st or {}
+    gpus = st.get("gpus") or []
+    inc = st.get("income")
+    up = st.get("uptime") or 0
+    return {
+        "t": "metrics",
+        "ths": "%.1f" % (st.get("ths") or 0),
+        "acc": "%d / %d" % (st.get("accepted") or 0, st.get("rejected") or 0),
+        "gpu": ("%.0f°C / %.0f%%" % (
+            max((g.get("temp") or 0) for g in gpus),
+            max((g.get("fan") or 0) for g in gpus))) if gpus else "—",
+        "income": ("¥%.0f" % inc) if inc else "—",
+        "gpu_text": "   ·   ".join(
+            "%s   %.1f TH/s   %.0f°C   %.0fW" % (
+                (g.get("model") or "GPU").replace("NVIDIA GeForce ", ""),
+                g.get("ths") or 0, g.get("temp") or 0, g.get("power") or 0)
+            for g in gpus) if gpus else "未检测到 NVIDIA GPU",
+        "uptime": "%d:%02d:%02d" % (up // 3600, up % 3600 // 60, up % 60) if up else "—",
+    }
+
+
 # ---------------------------------------------------------------- 挖矿引擎
 
 class MiningEngine:
@@ -3604,22 +3637,7 @@ def run_gui():
             else:
                 push({"t": "conflict", "on": False, "text": ""})
         elif kind == "stats":
-            gpus = ev.get("gpus") or []
-            inc = ev.get("income")
-            up = ev.get("uptime") or 0
-            push({"t": "metrics",
-                  "ths": "%.1f" % (ev.get("ths") or 0),
-                  "acc": "%d / %d" % (ev.get("accepted") or 0, ev.get("rejected") or 0),
-                  "gpu": ("%.0f°C / %.0f%%" % (
-                      max((g.get("temp") or 0) for g in gpus),
-                      max((g.get("fan") or 0) for g in gpus))) if gpus else "—",
-                  "income": ("¥%.0f" % inc) if inc else "—",
-                  "gpu_text": "   ·   ".join(
-                      "%s   %.1f TH/s   %.0f°C   %.0fW" % (
-                          (g.get("model") or "GPU").replace("NVIDIA GeForce ", ""),
-                          g.get("ths") or 0, g.get("temp") or 0, g.get("power") or 0)
-                      for g in gpus) if gpus else "未检测到 NVIDIA GPU",
-                  "uptime": "%d:%02d:%02d" % (up // 3600, up % 3600 // 60, up % 60) if up else "—"})
+            push(metrics_from_stats(ev))
             update_income_ui(ev.get("income_rate"), ev.get("income_cny"),
                              ev.get("wallet"))
             if ev.get("gamemode"):
@@ -3828,14 +3846,22 @@ def run_gui():
             hint = TIER_HINT[tier] + ("；已隐藏 %d 个海外节点" % hidden if hidden else "")
             hkind = "grn" if tier in (REGION_CN, REGION_HMT) else "amb"
         running = is_mining()
+        # 重开窗口时新页面拿不到历史推送，实时指标必须由快照直接带上
+        st = dict(engine.stats or {})
+        if st.get("gamemode"):
+            gp = st.get("game_proc")
+            pill = {"text": "让卡中" + ("（%s）" % gp if gp else ""), "kind": "warn"}
+        elif running:
+            pill = {"text": "运行中", "kind": "run"}
+        else:
+            pill = {"text": "已停止", "kind": "stop"}
         return {
             "version": CLIENT_VERSION,
             "page": os.environ.get("MINRIGS_PAGE") or "mine",
             "fields": dict(S["fields"]),
             "toggles": dict(S["toggles"]),
             "running": running,
-            "pill": {"text": "运行中", "kind": "run"} if running
-                     else {"text": "已停止", "kind": "stop"},
+            "pill": pill,
             "preset_games": list(GAME_PROCESSES.values()),
             "logs": list(log_buf),
             "kchips": kchips_payload(),
@@ -3849,6 +3875,8 @@ def run_gui():
                      "hint": hint, "hint_kind": hkind,
                      "speed_disabled": False, "speed_label": "测速"},
             "kernel_rows": kernel_rows_payload(),
+            # 没在挖矿时给空快照：避免把上一次运行残留的算力当成当前值显示
+            "metrics": metrics_from_stats(st if running else {}),
             "income": income_payload(),
             "rig": {"wallet": short_addr(S["fields"]["wallet"]) or "未设置"},
             "acct": acct_payload(),
