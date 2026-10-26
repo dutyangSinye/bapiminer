@@ -33,9 +33,13 @@ BASE = os.path.dirname(os.path.abspath(__file__)) if not getattr(sys, "frozen", 
     else os.path.dirname(sys.executable)
 CONFIG_FILE = os.path.join(BASE, "client_config.json")
 LOG_FILE = os.path.join(BASE, "client.log")
+# 单实例之间「把界面叫回来」的信号文件：第二个实例写它，正在跑的实例轮询到就开窗口。
+# 为什么需要它：用户点 X 关掉窗口后，托盘图标在 Win11 上可能被折叠进「隐藏的图标」，
+# 于是双击 exe 成了唯一能回到界面的入口 —— 老逻辑只会弹「已在运行」的模态框。
+SHOW_SIGNAL = os.path.join(BASE, ".show_window")
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.1"
+CLIENT_VERSION = "1.13.0.2"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -2871,10 +2875,23 @@ def run_gui():
         # 那会让「复用已有窗口」分支静默失败，退化成每次点托盘都新开窗口
         # —— 正是用户反馈的「点几次就出来几个界面」。
         # 文件顶部已有模块级 import ctypes，直接用即可。
+        # 没有窗口（用户点 X 关掉了）→ 通知正在运行的实例开一个，然后静默退出。
+        # 不再弹「已在运行」的模态框：那只会让人以为程序坏了，而且模态框会一直卡着。
+        try:
+            with open(SHOW_SIGNAL, "w", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+        except OSError:
+            pass
+        for _ in range(25):                 # 最多等 5 秒，看窗口有没有被拉起来
+            if _find_app_windows():
+                log_write("启动被拦：已通知运行中的实例打开界面")
+                return 1
+            time.sleep(0.2)
+        # 兜底：运行中的实例没响应（卡死/无 UI），才提示用户
         ctypes.windll.user32.MessageBoxW(
-            0, "本机已经有一个 扒皮矿工·矿机端在运行。\n\n"
-               "同时跑多个实例会互相抢显卡，算力不会翻倍，反而会明显下降。\n"
-               "请切换到已打开的那个窗口（或先关掉它再启动本程序）。",
+            0, "本机已经有一个 扒皮矿工·矿机端在运行，但它没能打开界面。\n\n"
+               "请到任务栏右下角的「隐藏的图标」里找它，或右键托盘图标选「打开主界面」。\n"
+               "如果实在找不到，可在任务管理器结束 BaPiMiner.exe 后重新启动本程序。",
             "扒皮矿工已在运行", 0x00000030)
         return 1
 
@@ -3962,12 +3979,23 @@ def run_gui():
     # 判定失手都会在桌面上多留一个窗口，用户看到的就是任务栏一排同名缩略图。
     # 这里每 20 秒扫一次，发现超过 1 个就收敛成 1 个（自愈，不依赖判定是否命中）。
     def ui_window_guard():
+        ticks = 0
         while not quitting[0]:
             try:
-                time.sleep(20.0)
+                time.sleep(0.5)
                 if quitting[0]:
                     return
-                _keep_only_one_app_window()
+                # 另一个实例双击启动时留下的信号 → 把界面叫回来（0.5s 内响应）
+                if os.path.isfile(SHOW_SIGNAL):
+                    try:
+                        os.remove(SHOW_SIGNAL)
+                    except OSError:
+                        pass
+                    log_write("收到「打开界面」请求（另一实例双击启动）")
+                    open_window()
+                ticks += 1
+                if ticks % 40 == 0:          # 约每 20 秒收敛一次重复窗口
+                    _keep_only_one_app_window()
             except Exception:  # noqa: BLE001
                 pass
     threading.Thread(target=ui_window_guard, daemon=True).start()
