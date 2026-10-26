@@ -64,13 +64,30 @@ STATIC_DIR = os.path.join(BASE_DIR, "static")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_FILE = os.path.join(DATA_DIR, "fleet.db")
 
-# ---- GPU 实测表：按型号聚合各矿机最近一次上报，同一自然日只算一次 ----
+# ---- GPU 实测表：按【单卡】聚合各矿机最近一次上报，同一自然日只算一次 ----
+# 注意：必须逐卡统计。双卡机（如 2×RTX 3080）如果按整机算，
+# 会把两张卡的算力和功耗堆到一张卡上，得出假的每瓦算力。
 GPU_TABLE_FILE = os.path.join(DATA_DIR, "gpu_table.json")
 
 
 def _gpu_label(model):
     m = str(model or "").replace("NVIDIA GeForce ", "").strip()
     return m or "未知型号"
+
+
+def _per_card_rates(d, n):
+    """逐卡算力：优先 miners[].gpu_rates（长度匹配且非全零），否则按卡数均分。"""
+    for m in (d.get("miners") or []):
+        gr = m.get("gpu_rates") or []
+        if len(gr) == n:
+            try:
+                vals = [float(x or 0) for x in gr]
+            except (TypeError, ValueError):
+                continue
+            if sum(vals) > 0:
+                return vals
+    total = float(d.get("ths") or 0)
+    return [total / n] * n if n else []
 
 
 def _build_gpu_table():
@@ -86,28 +103,41 @@ def _build_gpu_table():
         except Exception:  # noqa: BLE001
             continue
         try:
-            ths = float(d.get("ths") or 0)
+            total_ths = float(d.get("ths") or 0)
         except (TypeError, ValueError):
-            ths = 0.0
-        if ths <= 0:
+            total_ths = 0.0
+        if total_ths <= 0:
             continue
-        try:
-            pw = float(d.get("power") or 0)
-        except (TypeError, ValueError):
-            pw = 0.0
-        label = _gpu_label(d.get("model"))
-        g = groups.setdefault(label, {"model": label, "rigs": 0, "ths": [],
-                                      "power": [], "kernels": {}})
-        g["rigs"] += 1
-        g["ths"].append(ths)
-        if pw > 0:
-            g["power"].append(pw)
-        k = str(d.get("kernel") or "")
-        if not k:
+        gpus = d.get("gpus") or []
+        if not gpus:
+            gpus = [{"model": d.get("model"), "power": d.get("power")}]
+        n = len(gpus)
+        per_ths = _per_card_rates(d, n)
+        kernel = str(d.get("kernel") or "")
+        if not kernel:
             ms = d.get("miners") or [{}]
-            k = str(ms[0].get("type") or "")
-        if k:
-            g["kernels"][k] = g["kernels"].get(k, 0) + 1
+            kernel = str(ms[0].get("type") or "")
+        for i, g in enumerate(gpus):
+            try:
+                ths_i = float(per_ths[i]) if i < len(per_ths) else total_ths / n
+            except (TypeError, ValueError):
+                ths_i = total_ths / n
+            if ths_i <= 0:
+                continue
+            try:
+                pw = float(g.get("power") or 0)
+            except (TypeError, ValueError):
+                pw = 0.0
+            label = _gpu_label(g.get("model") or d.get("model"))
+            gg = groups.setdefault(label, {"model": label, "cards": 0, "rigs": set(),
+                                           "ths": [], "power": [], "kernels": {}})
+            gg["cards"] += 1
+            gg["rigs"].add(r["name"])
+            gg["ths"].append(ths_i)
+            if pw > 0:
+                gg["power"].append(pw)
+            if kernel:
+                gg["kernels"][kernel] = gg["kernels"].get(kernel, 0) + 1
 
     out = []
     for label, g in groups.items():
@@ -117,7 +147,8 @@ def _build_gpu_table():
         kernel = max(g["kernels"], key=g["kernels"].get) if g["kernels"] else ""
         out.append({
             "model": label,
-            "rigs": g["rigs"],
+            "cards": g["cards"],
+            "rigs": len(g["rigs"]),
             "ths": round(ths, 1),
             "power": round(pw, 0),
             "ghw": round(ths * 1000.0 / pw, 0) if pw > 0 else None,
@@ -136,7 +167,7 @@ def gpu_table_payload(force=False):
         try:
             with open(GPU_TABLE_FILE, encoding="utf-8") as f:
                 cached = json.load(f)
-            if cached.get("date") == today and cached.get("rows"):
+            if cached.get("date") == today and cached.get("rows") and "cards" in (cached.get("rows") or [{}])[0]:
                 cached["cached"] = True
                 return cached
         except (OSError, ValueError):
@@ -144,7 +175,14 @@ def gpu_table_payload(force=False):
     rows = _build_gpu_table()
     payload = {"ok": True, "date": today, "generated_at": now_cn(), "cached": False,
                "rows": rows, "models": len(rows),
-               "total_rigs": sum(r["rigs"] for r in rows)}
+               "total_cards": sum(r["cards"] for r in rows)}
+    # 机器数：机型去重后不能相加，单独按 24h 内上报的机器统计
+    try:
+        c = db()
+        payload["total_rigs"] = c.execute(
+            "SELECT COUNT(*) FROM rigs WHERE last_seen > ?", (time.time() - 86400,)).fetchone()[0]
+    except Exception:  # noqa: BLE001
+        payload["total_rigs"] = 0
     try:
         tmp = GPU_TABLE_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -153,6 +191,8 @@ def gpu_table_payload(force=False):
     except OSError:
         pass
     return payload
+
+
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 PORT = int(os.environ.get("PORT", "8099"))
@@ -171,31 +211,6 @@ _allow_register = True
 _cfg = {}
 _rate_lock = threading.Lock()
 _rate_map = {}          # 型号 -> USDT/TH/s/天（来自 vminers PRL 实测榜）
-_rate_meta = {}         # 型号 -> {ths, prl_day, usdt_day, power_w}
-_rate_meta_lc = {}      # 小写型号 -> 原始键（大小写不敏感匹配）
-_rate_avg = 0.0         # 全表加权均价 USDT/TH/s/天（Σusdt/Σths），收益按总算力计算
-_cny_rate = 6.67        # USDT->CNY 实时汇率（动态拉取，失败时兜底）
-_rate_ts = 0.0
-
-# ---------------------------------------------------------------- 币价行情
-# 群控台顶部展示的实时币价。
-# 数据源优先级：SafeTrade 公开行情 API（Pearl 主交易场所）→ Gate.io → 其它公共源。
-# ★ 生产服务器出口 IP 会被 SafeTrade 重置连接（Connection reset by peer），
-#   故必须有兜底源；Gate.io 允许跨域且含 PEARL_USDT，实测可用。
-_price_lock = threading.Lock()
-_price_map = {}         # 币种符号(大写) -> {last, change, high, low, volume, src}
-_price_ts = 0.0
-_price_src = ""
-
-# 展示的币种顺序（与页面一致）
-# ★ 只保留平台收益币种珍珠币（PEARL）。需求明确「只要珍珠币的币价」，
-#   多币种既拖慢每次刷新（每个源都要多打几次 HTTP），又稀释页面重点。
-#   结构保留列表形式：以后要加币种只需在这里加一行，不用改抓取器与前端。
-PRICE_COINS = [
-    ("PRL", "PEARL", "珍珠币"),   # 平台收益币种（vminers 榜单口径就是 PRL）
-]
-
-# ---------------------------------------------------------------- 配置
 
 
 def _load_config():

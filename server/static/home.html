@@ -779,7 +779,9 @@ footer{border-top:1px solid var(--line);padding:30px 0;background:rgba(0,0,0,.24
   fetch('/api/gpu_table', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
     if (!d || !d.ok || !d.rows || !d.rows.length) return;
     tb.innerHTML = d.rows.map(function (x) {
-      var note = (x.rigs > 1 ? x.rigs + ' 台实测平均' : '单机实测') + (x.laptop ? ' · 笔记本显卡' : '');
+      var note = (x.cards > 1 ? x.cards + ' 卡实测平均' : '单卡实测')
+        + (x.rigs > 1 ? ' · ' + x.rigs + ' 台机' : '')
+        + (x.laptop ? ' · 笔记本显卡' : '');
       var tagCls = /srb|bzminer|srbminer/i.test(x.kernel) ? 'tag a' : 'tag';
       return '<tr>' +
         '<td class="gpu">' + esc(x.model) + '<small>' + esc(note) + '</small></td>' +
@@ -793,7 +795,8 @@ footer{border-top:1px solid var(--line);padding:30px 0;background:rgba(0,0,0,.24
     var sub = document.getElementById('gpu-sub');
     if (sub) {
       sub.textContent = '按每瓦算力从高到低排序 —— 电费敏感的场景优先看最后一列。' +
-        d.total_rigs + ' 台矿机、' + d.models + ' 种 GPU 型号，数据日期 ' + d.date + '（每日自动更新）。';
+        d.total_rigs + ' 台矿机、' + d.total_cards + ' 张显卡、' + d.models +
+        ' 种型号，数据日期 ' + d.date + '（每日自动更新）。';
     }
     var foot = document.querySelector('#hashrate .tbl-foot');
     if (foot && d.generated_at) {
