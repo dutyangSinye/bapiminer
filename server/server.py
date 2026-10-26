@@ -63,6 +63,96 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE_DIR, "static")
 DATA_DIR = os.path.join(BASE_DIR, "data")
 DB_FILE = os.path.join(DATA_DIR, "fleet.db")
+
+# ---- GPU 实测表：按型号聚合各矿机最近一次上报，同一自然日只算一次 ----
+GPU_TABLE_FILE = os.path.join(DATA_DIR, "gpu_table.json")
+
+
+def _gpu_label(model):
+    m = str(model or "").replace("NVIDIA GeForce ", "").strip()
+    return m or "未知型号"
+
+
+def _build_gpu_table():
+    c = db()
+    rows = c.execute(
+        "SELECT name, last_seen, last_report FROM rigs WHERE last_seen > ? ORDER BY name",
+        (time.time() - 86400,)).fetchall()
+    avg, cny = rate_avg(), rate_cny()
+    groups = {}
+    for r in rows:
+        try:
+            d = json.loads(r["last_report"] or "{}")
+        except Exception:  # noqa: BLE001
+            continue
+        try:
+            ths = float(d.get("ths") or 0)
+        except (TypeError, ValueError):
+            ths = 0.0
+        if ths <= 0:
+            continue
+        try:
+            pw = float(d.get("power") or 0)
+        except (TypeError, ValueError):
+            pw = 0.0
+        label = _gpu_label(d.get("model"))
+        g = groups.setdefault(label, {"model": label, "rigs": 0, "ths": [],
+                                      "power": [], "kernels": {}})
+        g["rigs"] += 1
+        g["ths"].append(ths)
+        if pw > 0:
+            g["power"].append(pw)
+        k = str(d.get("kernel") or "")
+        if not k:
+            ms = d.get("miners") or [{}]
+            k = str(ms[0].get("type") or "")
+        if k:
+            g["kernels"][k] = g["kernels"].get(k, 0) + 1
+
+    out = []
+    for label, g in groups.items():
+        n = len(g["ths"])
+        ths = sum(g["ths"]) / n
+        pw = (sum(g["power"]) / len(g["power"])) if g["power"] else 0.0
+        kernel = max(g["kernels"], key=g["kernels"].get) if g["kernels"] else ""
+        out.append({
+            "model": label,
+            "rigs": g["rigs"],
+            "ths": round(ths, 1),
+            "power": round(pw, 0),
+            "ghw": round(ths * 1000.0 / pw, 0) if pw > 0 else None,
+            "income_cny_day": round(ths * avg * cny, 2) if (avg and cny) else None,
+            "kernel": kernel,
+            "laptop": "Laptop" in label,
+        })
+    out.sort(key=lambda x: (x["ghw"] or 0), reverse=True)
+    return out
+
+
+def gpu_table_payload(force=False):
+    """每天只算一次：同一自然日直接返回缓存，跨日重算并落盘。"""
+    today = now_cn()[:10]
+    if not force:
+        try:
+            with open(GPU_TABLE_FILE, encoding="utf-8") as f:
+                cached = json.load(f)
+            if cached.get("date") == today and cached.get("rows"):
+                cached["cached"] = True
+                return cached
+        except (OSError, ValueError):
+            pass
+    rows = _build_gpu_table()
+    payload = {"ok": True, "date": today, "generated_at": now_cn(), "cached": False,
+               "rows": rows, "models": len(rows),
+               "total_rigs": sum(r["rigs"] for r in rows)}
+    try:
+        tmp = GPU_TABLE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=1)
+        os.replace(tmp, GPU_TABLE_FILE)
+    except OSError:
+        pass
+    return payload
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 PORT = int(os.environ.get("PORT", "8099"))
@@ -2480,6 +2570,10 @@ class Handler(BaseHTTPRequestHandler):
                 "SELECT * FROM alerts WHERE rig IN (%s) ORDER BY id DESC LIMIT 80" % qs,
                 list(vis)).fetchall()
             return self._json({"ok": True, "alerts": [dict(x) for x in rows]})
+
+        if p == "/api/gpu_table":
+            # 官网「GPU 算力与日收益实测表」：按型号聚合，每天自动刷新一次
+            return self._json(gpu_table_payload())
 
         if p == "/api/health":
             c = db()
