@@ -14,6 +14,7 @@
 
 import atexit
 import ctypes
+import ctypes.wintypes as _wt
 import hashlib
 import json
 import os
@@ -34,8 +35,154 @@ CONFIG_FILE = os.path.join(BASE, "client_config.json")
 LOG_FILE = os.path.join(BASE, "client.log")
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.12.0.4"
+CLIENT_VERSION = "1.13.0.1"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
+
+# ---------------------------------------------------------------- 升级链路信任根
+# 矿机端只接受「用下面这把公钥验签通过」的升级清单，不信任中控返回的任何字段：
+# 文件字节和它的 sha256 如果来自同一个未鉴权响应，那只防传输损坏、不防替换。
+#
+# 私钥在发布机上离线保管（keys/publisher_ed25519.key，已 gitignore）：
+#   python tools/sign_manifest.py keygen   -> 生成
+#   python tools/sign_manifest.py pubkey   -> 打印公钥填到这里
+#
+# ⚠ 换公钥 = 所有旧矿机从此再也升不动（只能手动重装），务必想清楚再动。
+PUBLISHER_PUBKEY = "b14fc60ce8beb1977ae7b31aca1937b075b55a72977d00bec74ad7b3310952d7"
+
+MANIFEST_SCHEMA = 1
+MANIFEST_PATH = "/api/signed_manifest"
+
+
+def _manifest_canonical(manifest):
+    """签名覆盖的字节；必须与 tools/sign_manifest.py::canonical 完全一致。"""
+    payload = {k: v for k, v in manifest.items() if k != "sig"}
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False).encode("utf-8")
+
+
+def _ver_tuple(version):
+    """'1.13.0.1' -> (1, 13, 0, 1)；非数字段按 0。"""
+    out = []
+    for seg in str(version or "").split("."):
+        digits = "".join(ch for ch in seg if ch.isdigit())
+        out.append(int(digits) if digits else 0)
+    return tuple(out) or (0,)
+
+
+def _ver_gt(a, b):
+    """版本 a 是否严格高于 b（按段比较，缺位补 0）。"""
+    ta, tb = _ver_tuple(a), _ver_tuple(b)
+    width = max(len(ta), len(tb))
+    ta = ta + (0,) * (width - len(ta))
+    tb = tb + (0,) * (width - len(tb))
+    return ta > tb
+
+
+# ---- Ed25519 验签（纯标准库）----
+# 与 tools/ed25519.py 同源，这里只保留验签所需部分；两边一致性由
+# tests/test_signing.py 用 RFC 8032 向量交叉校验（改一边不改另一边会立刻挂测试）。
+_ED_P = 2 ** 255 - 19
+_ED_L = 2 ** 252 + 27742317777372353535851937790883648493
+_ED_D = -121665 * pow(121666, _ED_P - 2, _ED_P) % _ED_P
+_ED_I = pow(2, (_ED_P - 1) // 4, _ED_P)
+
+
+def _ed_recover_x(y):
+    if y >= _ED_P:
+        raise ValueError("y 非规范编码")
+    xx = (y * y - 1) * pow(_ED_D * y * y + 1, _ED_P - 2, _ED_P) % _ED_P
+    x = pow(xx, (_ED_P + 3) // 8, _ED_P)
+    if (x * x - xx) % _ED_P != 0:
+        x = x * _ED_I % _ED_P
+    return _ED_P - x if x & 1 else x
+
+
+def _ed_on_curve(point):
+    x, y = point
+    xx, yy = x * x % _ED_P, y * y % _ED_P
+    return (-xx + yy - 1 - _ED_D * xx * yy) % _ED_P == 0
+
+
+def _ed_decode(data):
+    if len(data) != 32:
+        raise ValueError("点编码长度错误")
+    v = int.from_bytes(data, "little")
+    y = v & ((1 << 255) - 1)
+    x = _ed_recover_x(y)
+    if (x & 1) != (v >> 255) & 1:
+        x = _ED_P - x
+    if not _ed_on_curve((x, y)):
+        raise ValueError("点不在曲线上")
+    return (x, y)
+
+
+def _ed_add(p1, p2):
+    x1, y1 = p1
+    x2, y2 = p2
+    common = _ED_D * x1 * x2 * y1 * y2 % _ED_P
+    x3 = (x1 * y2 + x2 * y1) * pow(1 + common, _ED_P - 2, _ED_P) % _ED_P
+    y3 = (y1 * y2 + x1 * x2) * pow(1 - common, _ED_P - 2, _ED_P) % _ED_P
+    return (x3 % _ED_P, y3 % _ED_P)
+
+
+def _ed_mul(point, scalar):
+    result = (0, 1)
+    while scalar:
+        if scalar & 1:
+            result = _ed_add(result, point)
+        point = _ed_add(point, point)
+        scalar >>= 1
+    return result
+
+
+def _ed_base():
+    y = 4 * pow(5, _ED_P - 2, _ED_P) % _ED_P
+    return (_ed_recover_x(y), y)
+
+
+_ED_B = _ed_base()
+
+
+def ed25519_verify(message, signature, pk):
+    """验签：任何非法输入都返回 False，不抛异常。"""
+    try:
+        if len(signature) != 64 or len(pk) != 32:
+            return False
+        big_r = _ed_decode(signature[:32])
+        a = _ed_decode(pk)
+        s = int.from_bytes(signature[32:], "little")
+        if s >= _ED_L:                       # 防签名延展
+            return False
+        h = int.from_bytes(hashlib.sha512(signature[:32] + pk + message).digest(),
+                           "little") % _ED_L
+        return _ed_mul(_ED_B, s) == _ed_add(big_r, _ed_mul(a, h))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def parse_signed_manifest(raw):
+    """解析并验签升级清单。返回 (manifest, 错误原因)；失败时 manifest 为 None。"""
+    try:
+        if isinstance(raw, (bytes, bytearray)):
+            raw = bytes(raw).decode("utf-8-sig")     # 容忍 Windows 工具加的 BOM
+        manifest = json.loads(raw)
+    except (TypeError, ValueError) as e:
+        return None, "清单不是合法 JSON：%s" % e
+    if not isinstance(manifest, dict):
+        return None, "清单结构异常"
+    if manifest.get("schema") != MANIFEST_SCHEMA:
+        return None, "清单版本不支持（%r）" % manifest.get("schema")
+    if not isinstance(manifest.get("client"), dict):
+        return None, "清单缺少 client 段"
+    try:
+        signature = bytes.fromhex(str(manifest.get("sig") or ""))
+        pubkey = bytes.fromhex(PUBLISHER_PUBKEY)
+    except ValueError:
+        return None, "清单签名或内置公钥格式错误"
+    if not ed25519_verify(_manifest_canonical(manifest), signature, pubkey):
+        return None, "清单验签失败（内容被改过，或不是发布私钥签发）"
+    return manifest, ""
+
 
 # ---------------------------------------------------------------- 子进程静默启动
 # 打包成 --noconsole 后本进程没有控制台，任何控制台子程序（nvidia-smi / taskkill /
@@ -342,6 +489,8 @@ GAME_PROCESSES = {
     "naraka.exe": "永劫无间(旧)",
 }
 
+
+
 def _default_kernel_dir():
     """内核目录默认跟着程序走，不可写时退回 %LOCALAPPDATA%\\BaPiMiner\\kernels。"""
     p = os.path.join(BASE, "kernels")
@@ -361,21 +510,29 @@ def _default_kernel_dir():
         return alt
 
 
-def default_pool_url():
-    """首次启动的默认矿池：Kryptex 的中国区节点。
 
-    选它的依据是实测（本机 2026-10）：香港 62ms / 新加坡 107ms / 德国 161ms /
-    美国 240ms，且 K1Pool、F2Pool、HeroMiners 的矿池端口从大陆网络直接超时。
+
+def _default_pool_url():
+    """默认矿池：按「中国直连优先」筛出的第一个节点。
+
+    pool_candidates 的口径与 UI 里「自动挑节点」完全一致，
+    保证首次启动的默认值就是推荐值。
     """
-    nodes, _tier = pool_candidates("kryptex")
-    return node_url(nodes[0]) if nodes else ""
+    try:
+        for brand in POOL_BRANDS:
+            nodes, _tier = pool_candidates(brand["id"])
+            if nodes:
+                return node_url(nodes[0])
+    except Exception:  # noqa: BLE001
+        pass
+    return "stratum+tcp://prl-hk.kryptex.network:7048"
 
 
 DEFAULT_CFG = {
     "kernel": "SRBMiner-MULTI",
     "kernel_dir": _default_kernel_dir(),
     "algo": "PRL (Pearl)",
-    "pool_url": default_pool_url(),
+    "pool_url": _default_pool_url(),
     "wallet": "",
     "worker": socket.gethostname().lower()[:20],
     "autostart": False,
@@ -384,91 +541,330 @@ DEFAULT_CFG = {
     "games": [],           # 额外自定义游戏进程名（小写 exe 名，如 mygame.exe）
     "ignore_miners": [],   # 已确认忽略的「其他挖矿程序」进程名
     "check_other_miners": True,   # 检测本机其他挖矿程序并提示关闭
-    "auto_update": True,   # 发现中控有新版本客户端时静默自更新（挖矿会中断约 10 秒）
     "server": "http://mine.sinyerobot.com:8099",  # 中控地址已内置，留空不上报
     "token": "",           # 中控接入口令（留空则自动生成随机口令）
     "rig_name": socket.gethostname().lower(),
+    # 中控显示名称（可改；rig_name 是机器身份不可改）
+    "display_name": "",
+    # 中控账号登录态（1.13.0.0 多用户）
+    "user_token": "",     # 中控下发的会话 token
+    "username": "",       # 当前登录的中控账号
+    "user_id": 0,         # 当前登录账号 id（0 = 未登录）
+    "is_admin": False,    # 当前登录账号是否管理员
+    "rig_bound": False,   # 本机是否已绑定到当前账号
 }
 
 UNIT_THS = {"H": 1e-12, "K": 1e-9, "M": 1e-6, "G": 1e-3, "T": 1.0, "": 1e-12}
+def kernel_dir_for(kernel_key, kernel_dir):
+    """每个内核一个独立子目录：<kernel_dir>/<内核名>/。
 
-# PROCESSENTRY32W（64 位布局）。注意 pcPriClassBase 在 WinAPI 里是 LONG（4 字节）：
-# 曾误写成 c_ssize_t(8 字节) 使结构体尺寸与系统要求不符，Process32FirstW 一律
-# 报 ERROR_BAD_LENGTH 拒绝填充 → 进程枚举永远返回 0 → 游戏模式/冲突检测静默失效。
-class _PE32W(ctypes.Structure):
-    _fields_ = [("dwSize", ctypes.c_uint), ("cntUsage", ctypes.c_uint),
-                ("th32ProcessID", ctypes.c_uint),
-                ("th32DefaultHeapID", ctypes.c_size_t),
-                ("th32ModuleID", ctypes.c_uint), ("cntThreads", ctypes.c_uint),
-                ("th32ParentProcessID", ctypes.c_uint),
-                ("pcPriClassBase", ctypes.c_long),
-                ("dwFlags", ctypes.c_uint),
-                ("szExeFile", ctypes.c_wchar * 260)]
-
-
-def list_processes():
-    """枚举当前所有进程的 exe 文件名（小写列表）。非 Windows 或失败返回空表。"""
-    if os.name != "nt":
-        return []
-    try:
-        k32 = ctypes.windll.kernel32
-        snap = k32.CreateToolhelp32Snapshot(0x2, 0)
-        if snap in (0, -1):
-            log_write("进程快照创建失败 err=%s" % k32.GetLastError())
-            return []
-        pe = _PE32W()
-        pe.dwSize = ctypes.sizeof(_PE32W)
-        names = []
-        ok = k32.Process32FirstW(snap, ctypes.byref(pe))
-        while ok:
-            names.append(pe.szExeFile.lower())
-            ok = k32.Process32NextW(snap, ctypes.byref(pe))
-        k32.CloseHandle(snap)
-        if not names:
-            log_write("进程枚举为空 err=%s（若反复出现请检查结构体定义）" % k32.GetLastError())
-        return names
-    except Exception as e:  # noqa: BLE001
-        log_write("进程枚举异常: %r" % e)
-        return []
-
-
-UI_TITLE = "扒皮矿工·矿机端"
-
-
-def _match_app_title(text):
-    """Edge app 窗口标题精确等于 UI_TITLE（无浏览器后缀）才算。
-
-    普通浏览器打开同名页面时窗口标题会带「- 个人 - Microsoft Edge」等
-    后缀或「和另外 N 个页面」，不能把用户自己的浏览器窗口当成矿机端。
+    为什么必须分开：不同内核的 exe 不能混在同一个目录里。
+    WildRig 之类的内核带加壳自校验，启动时会检查「自己所在目录」的内容，
+    发现混进了别的内核的文件（PearlMiner.exe / SRBMiner-MULTI.exe /
+    各自的 ReadMe、license、bat 脚本）就判定为「文件被篡改/已损坏」，
+    直接弹 "File corrupted! This program has been manipulated..." 并拒绝运行。
+    分目录后各内核互不干扰。
     """
-    return (text or "").strip() == UI_TITLE
+    if not kernel_dir:
+        return ""
+    k = KERNELS.get(kernel_key) or {}
+    sub = k.get("dir") or kernel_key or "kernel"
+    # 内核名里可能出现路径分隔符等，做一次安全清洗
+    sub = "".join(ch for ch in str(sub) if ch.isalnum() or ch in "-_.")
+    if not sub:
+        sub = "kernel"
+    return os.path.join(kernel_dir, sub)
 
 
-def _find_app_window():
-    """找已有的矿机端 Edge app 窗口（按标题精确匹配），返回 hwnd 或 0。"""
+def shutil_move(src, dst):
+    """移动文件（跨盘时退化为复制+删除）。"""
+    import shutil
+    if os.path.isdir(dst):
+        dst = os.path.join(dst, os.path.basename(src))
+    if os.path.exists(dst):
+        try:
+            os.remove(dst)
+        except OSError:
+            return
+    try:
+        os.replace(src, dst)
+    except OSError:
+        try:
+            shutil.copy2(src, dst)
+            os.remove(src)
+        except OSError:
+            pass
+
+
+# 每个内核官方包自带的「附属文件」——它们必须跟自己的 exe 待在同一目录，
+# 否则加壳自校验会认为文件被篡改。解压时整体搬进内核专属子目录。
+# 旧布局里各内核的「标志文件」——用来把平铺的文件归类到各内核。
+# 依据是实测文件清单：WildRig 官方包带 start-BitCore-*.bat / help.txt /
+# license.txt / print-devices.bat；SRB 带 WinRing0x64.sys / list-*.bat；
+# Bz 带 bzminer.worker.log / env-vars.txt；Pearl 带 PearlMiner.exe / _internal。
+KERNEL_FILE_OWNERS = (
+    ("WildRig", (
+        "wildrig.exe", "help.txt", "license.txt", "print-devices.bat",
+        "print-help.bat", "start-BitCore*.bat", "start-Nexa.bat",
+        "start-Evrmore.bat", "start-Meowcoin.bat", "start-Zano.bat",
+        "start-Phicoin.bat", "start-Pearl.bat", "start-Kyla.bat",
+        "start-Quartus.bat", "start-GpuMiner*.bat", "start-randomx.bat",
+        "start-Qubitcoin-*.bat", "start-Radiant*.bat", "start-Raptoreum.bat",
+        "start-Ravencoin.bat", "start-Sero.bat", "start-SkyDoge.bat",
+        "start-TelestAI.bat", "start-Neoxa.bat", "start-PEARL.bat",
+        "Autotune", "Cache", "Help",
+    )),
+    ("SRBMiner-MULTI", (
+        "SRBMiner-MULTI.exe", "WinRing0x64.sys", "guided-setup.bat",
+        "list-algorithms.bat", "list-gpu-devices.bat", "help.bat",
+        "start-mining-*.bat", "start_worker_*.bat", "start_proxy_*.bat",
+        "THIRD_PARTY_NOTICES.txt",
+    )),
+    ("BzMiner", (
+        "bzminer.exe", "bzminer.worker.log", "env-vars.txt", "config.txt",
+    )),
+)
+
+
+def _kernel_file_belongs(filename, pats):
+    """文件名是否属于该内核（大小写不敏感，支持 * 通配）。"""
+    import fnmatch as _fn
+    low = filename.lower()
+    for pat in pats:
+        if "*" in pat:
+            if _fn.fnmatch(low, pat.lower()):
+                return True
+        elif low == pat.lower():
+            return True
+    return False
+
+
+def _migrate_kernel_layout(root=None):
+    """把「所有内核混在一个目录」的旧布局整理成「每内核一个子目录」。
+
+    旧版客户端把 WildRig / SRBMiner / BzMiner 的文件平铺解压到同一个目录，
+    而不同内核的 exe 不能混在一起——加壳内核会做目录完整性自校验，
+    发现旁边有别的内核的文件就判定为「文件被篡改」而拒绝运行。
+
+    必须「全树扫描」：实测旧布局里 wildrig.exe 会藏在
+    kernels\\PearlMiner-SRB-0.1.2\\ 这种子目录里（当年客户端复用目录所致），
+    只扫根目录会漏掉，弹窗依旧。
+
+    规则：
+      1) 递归定位每个内核的 exe 当前在哪个目录（排除已在正确子目录的）
+      2) 把该目录里属于本内核的「文件」搬进内核专属子目录
+      3) exe 本身最后搬
+    只搬文件不搬目录，避免误伤目录结构。返回移动的文件数。
+    """
     if os.name != "nt":
         return 0
-    try:
-        import ctypes.wintypes as _wt
-        user32 = ctypes.windll.user32
-        found = []
-
-        @ctypes.WINFUNCTYPE(_wt.BOOL, _wt.HWND, _wt.LPARAM)
-        def cb(hwnd, _lp):
-            if user32.IsWindowVisible(hwnd):
-                n = user32.GetWindowTextLengthW(hwnd)
-                if n:
-                    buf = ctypes.create_unicode_buffer(n + 1)
-                    user32.GetWindowTextW(hwnd, buf, n + 1)
-                    if _match_app_title(buf.value):
-                        found.append(hwnd)
-                        return False
-            return True
-
-        user32.EnumWindows(cb, 0)
-        return found[0] if found else 0
-    except Exception:  # noqa: BLE001
+    if not root:
+        root = _default_kernel_dir()
+    if not root or not os.path.isdir(root):
         return 0
+    import glob as _glob
+    moved = 0
+    for key, pats in KERNEL_FILE_OWNERS:
+        k = KERNELS.get(key) or {}
+        exe_name = k.get("exe") or ""
+        if not exe_name:
+            continue
+        dest = kernel_dir_for(key, root)
+        if not dest:
+            continue
+        try:
+            os.makedirs(dest, exist_ok=True)
+        except OSError:
+            continue
+        dest_abs = os.path.normcase(os.path.abspath(dest))
+        # 1) 全树找这个内核的 exe（排除已经位于正确子目录的）
+        src_exe = ""
+        try:
+            hits = _glob.glob(os.path.join(root, "**", exe_name), recursive=True)
+        except Exception:  # noqa: BLE001
+            hits = []
+        for h in sorted(hits):
+            if not os.path.isfile(h):
+                continue
+            if os.path.normcase(os.path.abspath(os.path.dirname(h))) == dest_abs:
+                continue
+            src_exe = h
+            break
+        if not src_exe:
+            continue
+        src_dir = os.path.dirname(src_exe)
+        # 2) 把 src_dir 里属于本内核的文件搬进 dest
+        try:
+            names = sorted(os.listdir(src_dir))
+        except OSError:
+            names = []
+        for fn in names:
+            sp = os.path.join(src_dir, fn)
+            if not os.path.isfile(sp):
+                continue
+            if not _kernel_file_belongs(fn, pats):
+                continue
+            dp = os.path.join(dest, fn)
+            if os.path.exists(dp):
+                continue
+            try:
+                shutil_move(sp, dp)
+                moved += 1
+            except Exception:  # noqa: BLE001
+                pass
+        # 3) exe 本身也搬（它在 pats 里时上面已搬；不在则单独搬）
+        dp = os.path.join(dest, os.path.basename(src_exe))
+        if not os.path.exists(dp):
+            try:
+                shutil_move(src_exe, dp)
+                moved += 1
+            except Exception:  # noqa: BLE001
+                pass
+    if moved:
+        log_write("内核目录已整理为每内核独立子目录（移动 %d 个文件）" % moved)
+    return moved
+def _match_app_title(title):
+    """判断一个窗口标题是不是矿机端 UI（Edge app 窗口）。
+
+    标题来自 client/web/index.html 的 <title>，实际是「扒皮矿工·矿机端」。
+    这里做「包含」而不是「完全相等」：标题里可能带额外后缀
+    （Edge 有时会在后面追加计数或状态），完全相等会漏判。
+    """
+    if not title:
+        return False
+    t = title.strip()
+    return ("矿机端" in t) and ("扒皮矿工" in t)
+
+
+def user32_visible(hwnd):
+    """窗口是否可见（可见但最小化也算）。"""
+    u = ctypes.windll.user32
+    u.IsWindowVisible.argtypes = [_wt.HWND]
+    u.IsWindowVisible.restype = _wt.BOOL
+    return bool(u.IsWindowVisible(hwnd))
+
+
+def user32_textlen(hwnd):
+    """窗口标题长度（0 表示无标题）。"""
+    u = ctypes.windll.user32
+    u.GetWindowTextLengthW.argtypes = [_wt.HWND]
+    u.GetWindowTextLengthW.restype = ctypes.c_int
+    return int(u.GetWindowTextLengthW(hwnd))
+
+
+def user32_text(hwnd, n):
+    """取窗口标题文本。"""
+    u = ctypes.windll.user32
+    u.GetWindowTextW.argtypes = [_wt.HWND, _wt.LPWSTR, ctypes.c_int]
+    u.GetWindowTextW.restype = ctypes.c_int
+    buf = ctypes.create_unicode_buffer(n + 1)
+    u.GetWindowTextW(hwnd, buf, n + 1)
+    return buf.value
+
+
+def _iter_top_windows():
+    """遍历所有顶层窗口 hwnd（不用 EnumWindows 回调）。
+
+    为什么不用 EnumWindows：它是「回调式」API，回调对象由 Python 创建并
+    需要在调用期间保持存活。一旦在多线程（尤其是托盘回调线程）里发生
+    GIL 切换导致回调被回收，枚举会中途夭折、只返回一部分甚至空表 ——
+    这正是「窗口明明在，open_window() 却说没有」的真凶。
+    链式遍历（GetTopWindow + GetWindow(GW_HWNDNEXT)）没有任何回调，
+    在任何线程下行为一致。
+    """
+    if os.name != "nt":
+        return
+    user32 = ctypes.windll.user32
+    user32.GetTopWindow.argtypes = [_wt.HWND]
+    user32.GetTopWindow.restype = _wt.HWND
+    user32.GetWindow.argtypes = [_wt.HWND, _wt.UINT]
+    user32.GetWindow.restype = _wt.HWND
+    user32.IsWindowVisible.argtypes = [_wt.HWND]
+    user32.IsWindowVisible.restype = _wt.BOOL
+    user32.GetWindowTextLengthW.argtypes = [_wt.HWND]
+    user32.GetWindowTextLengthW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [_wt.HWND, _wt.LPWSTR, ctypes.c_int]
+    user32.GetWindowTextW.restype = ctypes.c_int
+
+    GW_HWNDNEXT = 2
+    hwnd = user32.GetTopWindow(None)
+    seen = 0
+    while hwnd and seen < 4096:
+        seen += 1
+        yield hwnd
+        hwnd = user32.GetWindow(hwnd, GW_HWNDNEXT)
+
+
+def _find_app_windows():
+    """列出所有可见的矿机端 Edge app 窗口 hwnd（按标题匹配）。
+
+    这是托盘「打开界面」幂等判断的基础：必须能可靠地枚举到已存在的窗口，
+    否则每次点击都会新开一个，桌面上就堆出一排同名窗口。
+    枚举失败时返回空列表（调用方要按「拿不到窗口」处理，不能当成功）。
+    """
+    if os.name != "nt":
+        return []
+    try:
+        found = []
+        for hwnd in _iter_top_windows():
+            if not user32_visible(hwnd):
+                continue
+            n = user32_textlen(hwnd)
+            if n:
+                title = user32_text(hwnd, n)
+                if _match_app_title(title):
+                    found.append(hwnd)
+        return found
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _debug_window_titles():
+    """列出当前所有可见顶层窗口的标题（排查枚举失手用）。"""
+    if os.name != "nt":
+        return []
+    try:
+        titles = []
+        for hwnd in _iter_top_windows():
+            if not user32_visible(hwnd):
+                continue
+            n = user32_textlen(hwnd)
+            if n:
+                titles.append((int(hwnd), user32_text(hwnd, n)))
+        return titles
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _keep_only_one_app_window():
+    """把桌面上多余的矿机端 UI 窗口收敛成「只剩一个」。
+
+    Edge app 窗口是独立进程，不受我们管辖；任何一次「打开界面」判定失手
+    都会在桌面上多留一个窗口（用户看到的就是任务栏一排同名缩略图）。
+    这里保留最后一个（最新打开的），其余发 WM_CLOSE 关掉。
+    返回关闭数量。
+    """
+    wins = _find_app_windows()
+    if len(wins) <= 1:
+        return 0
+    keep = wins[-1]
+    closed = 0
+    try:
+        u32 = ctypes.windll.user32
+        u32.PostMessageW.argtypes = [_wt.HWND, _wt.UINT, _wt.WPARAM, _wt.LPARAM]
+        u32.PostMessageW.restype = _wt.BOOL
+    except Exception:  # noqa: BLE001
+        u32 = ctypes.windll.user32
+    for h in wins[:-1]:
+        try:
+            if u32.PostMessageW(h, 0x0010, 0, 0):   # WM_CLOSE
+                closed += 1
+        except Exception:  # noqa: BLE001
+            pass
+    if closed:
+        log_write("已收敛矿机端 UI 窗口：保留 1 个，关闭多余的 %d 个" % closed)
+        time.sleep(0.6)
+    return closed
 
 
 def _close_app_windows():
@@ -480,7 +876,6 @@ def _close_app_windows():
     if os.name != "nt":
         return 0
     try:
-        import ctypes.wintypes as _wt
         user32 = ctypes.windll.user32
         targets = []
 
@@ -590,6 +985,15 @@ def acquire_single_instance(name="BaPiMinerClient"):
 
 def _proc_image_path(k32, pid):
     try:
+        # 显式声明签名：OpenProcess 默认 restype 是 32 位 int，
+        # 64 位下 HANDLE 会被截断 → OpenProcess 拿不到有效句柄 → 路径全空
+        k32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_bool, ctypes.c_uint32]
+        k32.OpenProcess.restype = ctypes.c_void_p
+        k32.QueryFullProcessImageNameW.argtypes = [
+            ctypes.c_void_p, ctypes.c_uint32, ctypes.c_wchar_p,
+            ctypes.POINTER(ctypes.c_uint32)]
+        k32.QueryFullProcessImageNameW.restype = ctypes.c_bool
+        k32.CloseHandle.argtypes = [ctypes.c_void_p]
         h = k32.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
         if not h:
             return ""
@@ -605,6 +1009,55 @@ def _proc_image_path(k32, pid):
     return ""
 
 
+def list_processes():
+    """枚举当前所有进程的 exe 文件名（小写列表）。非 Windows 或失败返回空表。
+
+    旧接口，保留给「只需要进程名、不需要 pid/路径」的调用点；
+    实际枚举走 list_processes_ex()，只在这里做一次降维。
+    """
+    if os.name != "nt":
+        return []
+    try:
+        return [p["name"] for p in list_processes_ex() if p.get("name")]
+    except Exception:  # noqa: BLE001
+        return []
+
+class _PE32W(ctypes.Structure):
+    """PROCESSENTRY32W —— 进程快照条目。
+
+    必须用 MSVC 默认对齐（_pack_ = 8），字段偏移：
+      dwSize 0 / cntUsage 4 / th32ProcessID 8 / th32DefaultHeapID 16 /
+      th32ModuleID 24 / cntThreads 28 / th32ParentProcessID 32 /
+      pcPriClassBase 36 / dwFlags 40 / szExeFile 44   （总长 568）
+
+    ★ 曾经的严重 bug：这里误用 _pack_ = 4，把 th32DefaultHeapID 塞在偏移 12。
+    它是 ULONG_PTR（8 字节），MSVC 会 8 字节对齐到偏移 16，
+    于是其后所有字段整体前移 4 字节 —— th32ParentProcessID 落在 28，
+    实际读到的是 cntThreads。
+
+    后果不是「枚举为空」（szExeFile 在两种布局下偏移都是 44，名字照常正确），
+    而是 **父 PID 被读成线程数**。这让 detect_conflicts 里
+    「用 my_ppid 排除 PyInstaller onefile 双进程」彻底失效：
+    同一份 exe 的引导父进程被当成「另一个重复实例」，
+    客户端于是把自己的引导进程报成「BaPiMiner 重复实例」，用户无从排查。
+
+    实测证据：同一份快照，392/393 个进程的 ppid 恰好等于同位置 cntThreads。
+    """
+
+    _fields_ = [
+        ("dwSize", ctypes.c_uint),                  # 0
+        ("cntUsage", ctypes.c_uint),                # 4
+        ("th32ProcessID", ctypes.c_uint),           # 8
+        ("th32DefaultHeapID", ctypes.c_uint64),     # 16
+        ("th32ModuleID", ctypes.c_uint),            # 24
+        ("cntThreads", ctypes.c_uint),              # 28
+        ("th32ParentProcessID", ctypes.c_uint),     # 32
+        ("pcPriClassBase", ctypes.c_int32),         # 36
+        ("dwFlags", ctypes.c_uint),                 # 40
+        ("szExeFile", ctypes.c_wchar * 260),        # 44
+    ]
+
+
 def list_processes_ex():
     """枚举进程：[{pid, name, path}]。"""
     if os.name != "nt":
@@ -612,8 +1065,15 @@ def list_processes_ex():
     out = []
     try:
         k32 = ctypes.windll.kernel32
+        # 显式声明签名：否则 64 位下 HANDLE 会被按 32 位 int 截断
+        k32.CreateToolhelp32Snapshot.restype = ctypes.c_void_p
+        k32.Process32FirstW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_PE32W)]
+        k32.Process32FirstW.restype = ctypes.c_bool
+        k32.Process32NextW.argtypes = [ctypes.c_void_p, ctypes.POINTER(_PE32W)]
+        k32.Process32NextW.restype = ctypes.c_bool
+        k32.CloseHandle.argtypes = [ctypes.c_void_p]
         snap = k32.CreateToolhelp32Snapshot(0x2, 0)
-        if snap in (0, -1):
+        if not snap or snap == ctypes.c_void_p(-1).value:
             log_write("进程快照(ex)创建失败 err=%s" % k32.GetLastError())
             return []
         pe = _PE32W()
@@ -685,6 +1145,22 @@ def detect_conflicts(own_pids=(), own_dirs=(), procs=None):
         except (TypeError, ValueError):
             pass
     family = {me, my_ppid} | set(p for p in own if p)
+
+    # ★ 双保险：onefile 的引导父进程与主进程是同一个 exe 文件。
+    #   父进程退出后 ppid 会变成孤儿标记（不可靠），或因权限读不到真实父 PID，
+    #   此时仅靠 my_ppid 排除会失效 → 把自己的 exe 误报成「重复实例」。
+    #   再加一条「同一 exe 路径 + 同一启动批次」的判定兜底。
+    my_path = ""
+    try:
+        my_path = os.path.normcase(os.path.abspath(EXE_PATH)) if EXE_PATH else ""
+    except Exception:  # noqa: BLE001
+        my_path = ""
+    if not my_path:
+        try:
+            my_path = os.path.normcase(os.path.abspath(sys.argv[0] or ""))
+        except Exception:  # noqa: BLE001
+            my_path = ""
+
     out = []
     for p in procs:
         try:
@@ -704,9 +1180,49 @@ def detect_conflicts(own_pids=(), own_dirs=(), procs=None):
             out.append({"pid": pid, "name": name, "label": label,
                         "path": path, "kind": "miner"})
         elif name in _SELF_NAMES and ppid != me:
+            # 同名 exe 进程：先判断它是不是「我们自己这一家」。
+            # onefile 打包的引导进程与主进程 exe 路径完全相同，
+            # 且引导进程是主进程的父进程 —— 这属于同一个实例，不能报重复。
+            # 判定顺序：
+            #   ① 它是我自己的子进程（ppid == me）→ 我们自己拉起的
+            #   ② 它是我的父进程（pid == my_ppid）→ onefile 引导进程
+            #   ③ exe 路径与我完全相同，且它的父进程链能追到我 → 同一实例家族
+            # 都不满足 → 才是真正的重复实例（另一个独立跑的客户端）
+            if ppid == me:
+                continue
+            if pid == my_ppid:
+                continue
+            if my_path and np == my_path and _is_same_instance_family(pid, me, procs):
+                continue
             out.append({"pid": pid, "name": name, "label": "BaPiMiner 重复实例",
                         "path": path, "kind": "dup"})
     return out
+
+
+def _is_same_instance_family(pid, me, procs):
+    """判断 pid 是否与 me 同属一个实例家族。
+
+    从 me 沿父进程链往上追，看是否经过 pid。
+    PyInstaller onefile 的进程树是：
+        启动器 → 引导进程(bootloader) → 主进程(python)
+    引导进程是主进程的**父**，因此它必然出现在我的祖先链上，
+    属于同一个实例，绝不能报成「重复实例」。
+    """
+    by_pid = {}
+    for p in procs:
+        try:
+            by_pid[int(p.get("pid") or 0)] = int(p.get("ppid") or 0)
+        except (TypeError, ValueError):
+            continue
+    cur = me
+    for _ in range(8):          # 最多向上追 8 层，防御环形引用
+        if cur == pid:
+            return True
+        nxt = by_pid.get(cur, 0)
+        if not nxt or nxt == cur:
+            return False
+        cur = nxt
+    return False
 
 
 def kill_pids(pids):
@@ -741,7 +1257,7 @@ def build_cmd(kernel, kernel_dir, algo_label, pool_url, wallet, worker):
         raise ValueError("未知内核: %s" % kernel)
     if not kernel_dir or not os.path.isdir(kernel_dir):
         raise ValueError("请先选择内核目录（含 %s）" % k["exe"])
-    exe = os.path.join(kernel_dir, k["exe"])
+    exe = os.path.join(kernel_dir_for(kernel, kernel_dir), k["exe"])
     if not os.path.isfile(exe):
         raise ValueError("未找到 %s，请确认内核目录" % exe)
     algo = ALGOS.get(algo_label)
@@ -1046,31 +1562,63 @@ def exe_sha256(path):
     return h.hexdigest()
 
 
-def fetch_client_latest(server, timeout=12):
-    """问中控要最新客户端信息；中控不可达或安装包未就绪时返回 None。"""
+def fetch_signed_manifest(server, timeout=12):
+    """取并验签升级清单。返回 (manifest, 错误原因)；任何失败都 fail closed。
+
+    刻意不再读 /api/client_latest：那个接口会同时给出文件和它的 sha256，
+    两者来自同一台（未鉴权）服务器，只能防传输损坏，防不了替换。
+    """
     if not server:
-        return None
+        return None, "未配置中控地址"
+    url = server.rstrip("/") + MANIFEST_PATH
     try:
-        d = http_json(server.rstrip("/") + "/api/client_latest", timeout=timeout)
-    except Exception:  # noqa: BLE001
-        return None
-    if not (isinstance(d, dict) and d.get("ok") and d.get("ready") and d.get("sha256")):
-        return None
-    return d
+        req = urllib.request.Request(url, headers={"User-Agent": "bapiminer-client/1.0"},
+                                     method="GET")
+        with _open(req, timeout) as r:
+            raw = r.read()
+    except Exception as e:  # noqa: BLE001
+        return None, "获取签名清单失败：%s" % e
+    return parse_signed_manifest(raw)
 
 
 def client_update_status(server):
-    """返回 (need_update, local_sha, latest)。源码运行 / 读不到自身指纹时不触发更新。"""
-    latest = fetch_client_latest(server)
+    """返回 (need_update, local_sha, latest)。
+
+    latest 恒为 dict：`signed=True` 表示来自验签清单；失败时带 ok=False + error，
+    调用方可以把原因直接显示给用户（不再静默当成「已是最新」）。
+    升级条件：签名版本严格高于本机版本，且 sha256 不同（防重放旧清单做降级）。
+    """
+    local = ""
+    if EXE_PATH and os.path.isfile(EXE_PATH):
+        try:
+            local = exe_sha256(EXE_PATH)
+        except OSError:
+            local = ""
+
+    manifest, err = fetch_signed_manifest(server)
+    if manifest is None:
+        return False, local, {"ok": False, "error": err}
+
+    entry = dict(manifest.get("client") or {})
+    ver = str(entry.get("version") or "")
+    sha = str(entry.get("sha256") or "").lower()
+    if len(sha) != 64:
+        return False, local, {"ok": False, "error": "清单里的客户端 sha256 非法"}
+
+    name = entry.get("file") or "BaPiMiner.exe"
+    latest = {
+        "ok": True, "ready": True, "signed": True,
+        "version": ver, "sha256": sha, "size": entry.get("size") or 0,
+        "name": name, "url": "/download/" + name,
+        "notes": manifest.get("notes") or "",
+        "issued_at": manifest.get("issued_at") or 0,
+    }
     if not EXE_PATH or not os.path.isfile(EXE_PATH):
-        return False, "", latest
-    try:
-        local = exe_sha256(EXE_PATH)
-    except OSError:
-        return False, "", latest
-    if not latest:
-        return False, local, None
-    return latest["sha256"] != local, local, latest
+        latest["error"] = "当前为源码运行模式，不执行自更新"
+        return False, local, latest
+    if not _ver_gt(ver, CLIENT_VERSION):
+        return False, local, latest
+    return sha != local, local, latest
 
 
 def _update_lock_acquire():
@@ -1196,7 +1744,15 @@ def apply_client_update(server, latest, emit=None, before_exit=None):
         return False, "当前为源码运行模式，不执行自更新"
     if not latest or not latest.get("sha256"):
         _update_lock_release()
-        return False, "没有可用的新版本信息"
+        return False, (latest or {}).get("error") or "没有可用的新版本信息"
+    # 只认验签清单；未签名条目一律拒绝（防止有人用旧接口把 exe 换掉）
+    if not latest.get("signed"):
+        _update_lock_release()
+        return False, "升级包未经签名，拒绝安装"
+    if not _ver_gt(latest.get("version") or "", CLIENT_VERSION):
+        _update_lock_release()
+        return False, ("签名版本 %s 不高于当前 v%s，拒绝降级"
+                       % (latest.get("version") or "?", CLIENT_VERSION))
     target = EXE_PATH
     # part 文件名带 PID：避免两个升级流程并发写同一临时文件互相毁内容
     part = "%s.new.part.%d" % (target, os.getpid())
@@ -1277,6 +1833,9 @@ def start_update_watcher(get_cfg, emit=None, stop_miner=None):
                                       % (latest.get("version") or ""))
                             time.sleep(3)
                             os._exit(0)   # 替换脚本已在等本进程退出
+                    elif emit and not latest.get("ok"):
+                        # 清单缺失/验签失败是「全群静默停更」最常见的原因，必须让人看见
+                        emit(event="log", msg="⚠ 升级检查未通过：%s" % latest.get("error"))
             except Exception:  # noqa: BLE001
                 pass
             time.sleep(6 * 3600)
@@ -1320,18 +1879,30 @@ def save_kernel_version(kernel_key, kernel_dir, version, file_name=""):
 def kernel_installed(kernel_key, kernel_dir):
     """(是否已装, 版本号, exe 路径)。"""
     k = KERNELS.get(kernel_key) or {}
-    exe = os.path.join(kernel_dir, k.get("exe") or "") if kernel_dir else ""
+    exe = (os.path.join(kernel_dir_for(kernel_key, kernel_dir), k.get("exe") or "")
+           if kernel_dir else "")
     ok = bool(exe and os.path.isfile(exe))
     return ok, kernel_local_version(kernel_key, kernel_dir), exe
 
 
-def extract_kernel_zip(zpath, kernel_dir, exe_name):
-    """解压内核 zip（自动剥掉官方压缩包的顶层目录），成功返回 None。"""
+def extract_kernel_zip(zpath, kernel_dir, exe_name, dest_dir=None):
+    """解压内核 zip 到「该内核自己的目录」（自动剥掉官方压缩包的顶层目录）。
+
+    dest_dir 缺省 = kernel_dir（旧行为，会把不同内核的文件混在一起）。
+    现在必须传内核专属子目录：WildRig 等内核带加壳自校验，同一目录里
+    混入别的内核文件会被判定为「文件被篡改」而拒绝运行。
+    成功返回 None，失败返回错误文案。
+    """
     import shutil
     import tempfile
     import zipfile
+    target_dir = dest_dir or kernel_dir
     exe_l = exe_name.lower()
-    tmp = tempfile.mkdtemp(dir=kernel_dir)
+    try:
+        os.makedirs(target_dir, exist_ok=True)
+    except OSError as e:
+        return "\u65e0\u6cd5\u521b\u5efa\u5185\u6838\u76ee\u5f55: %s" % e
+    tmp = tempfile.mkdtemp(dir=target_dir)
     try:
         with zipfile.ZipFile(zpath) as z:
             z.extractall(tmp)
@@ -1341,10 +1912,10 @@ def extract_kernel_zip(zpath, kernel_dir, exe_name):
                 src_root = root
                 break
         if not src_root:
-            return "压缩包里找不到 %s" % exe_name
+            return "\u538b\u7f29\u5305\u91cc\u627e\u4e0d\u5230 %s" % exe_name
         for f in os.listdir(src_root):
             src = os.path.join(src_root, f)
-            dst = os.path.join(kernel_dir, f)
+            dst = os.path.join(target_dir, f)
             if os.path.isdir(src):
                 import shutil as _sh
                 _sh.copytree(src, dst, dirs_exist_ok=True)
@@ -1353,17 +1924,20 @@ def extract_kernel_zip(zpath, kernel_dir, exe_name):
                 _sh.copy2(src, dst)
         return None
     except Exception as e:  # noqa: BLE001
-        return "解压失败: %s" % e
+        return "\u89e3\u538b\u5931\u8d25: %s" % e
     finally:
         import shutil as _sh
         _sh.rmtree(tmp, ignore_errors=True)
 
 
 def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
-                  force=False):
+                  force=False, manifest=None):
     """确保 kernel_dir 里有所选内核；force=True 时强制拉取中控最新版并覆盖。
 
     返回 (错误信息或 None, 当前版本号)。
+
+    下载内容必须与**签名清单**里的 sha256 一致才解压；清单缺失/未签该内核/
+    哈希不符一律拒绝。这是为了防止「中控这台机器被拿下 = 全机群拿到任意 exe」。
     force 时先重命名正在运行的 exe（Windows 允许改名运行中的 exe），再解压覆盖，
     覆盖完成才写版本号，避免「看起来更新了其实还是旧内核」。
     """
@@ -1372,7 +1946,8 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
         return "未知内核: %s" % kernel_key, ""
     if not kernel_dir:
         return "请先选择内核目录", ""
-    exe_path = os.path.join(kernel_dir, k["exe"])
+    kdir = kernel_dir_for(kernel_key, kernel_dir)
+    exe_path = os.path.join(kdir, k["exe"])
     cur_ver = kernel_local_version(kernel_key, kernel_dir)
     if os.path.isfile(exe_path) and not force:
         return None, cur_ver
@@ -1380,29 +1955,59 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
         if os.path.isfile(exe_path):
             return None, cur_ver
         return "缺少 %s，且未配置中控无法自动下载" % k["exe"], ""
+    # 内核 key 必须来自 KERNELS 的显式映射。
+    # 原来这里是 `k.get("key") or ("srbminer" if ... else "bzminer")` 的猜测兜底 ——
+    # 新增内核若漏写 key，会静默去下载别的内核（用户看到的是「没升级」）。
+    # 宁可显式报错，也不要下载错内核。
+    key = k.get("key")
+    if not key:
+        return "内核 %s 缺少 key 映射（中控下载配置有误）" % kernel_key, ""
+
+    # ---- 先拿到「发布者签过名的」目标版本与哈希，再决定要不要下载 ----
+    if manifest is None:
+        manifest, merr = fetch_signed_manifest(server)
+        if manifest is None:
+            return ("无法取得升级清单（%s）。\n"
+                    "为防投毒，没有签名清单时不会安装内核；"
+                    "请联系发布者签发 signed_manifest.json 后重试。" % merr), cur_ver
+    entry = (manifest.get("kernels") or {}).get(key)
+    if not isinstance(entry, dict) or len(str(entry.get("sha256") or "")) != 64:
+        return ("内核 %s 不在签名清单里（发布者还没签发这个版本），已拒绝安装。\n"
+                "解决：发布者执行 tools/sign_manifest.py sign 更新 signed_manifest.json"
+                % kernel_key), cur_ver
+    want_sha = str(entry.get("sha256")).lower()
+    want_ver = str(entry.get("version") or "")
+    want_file = str(entry.get("file") or "")
+    want_size = int(entry.get("size") or 0)
+
     try:
-        os.makedirs(kernel_dir, exist_ok=True)
-        key = k.get("key") or ("srbminer" if kernel_key == "SRBMiner-MULTI" else "bzminer")
+        os.makedirs(kdir, exist_ok=True)
         url = server.rstrip("/") + "/api/kernel_dl?kernel=" + key
         if rig_name:
             url += "&rig=" + urllib.parse.quote(rig_name)
         if force:
             url += "&t=%d" % int(time.time())      # 绕过任何中间层缓存
-        zpath = os.path.join(kernel_dir, "_dl_%s.zip" % kernel_key)
+        zpath = os.path.join(kdir, "_dl_%s.zip" % kernel_key)
         if emit:
             emit(event="log", msg="⬇ 正在从中控获取 %s%s ..." % (
                 k.get("label") or kernel_key, " 最新版" if force else ""))
-        meta = {}
-        size = http_download(url, zpath, headers={"X-Rig-Token": token}, meta=meta)
-        new_ver = (meta.get("X-Kernel-Version") or "").strip()
+        size = http_download(url, zpath, headers={"X-Rig-Token": token})
+        # ⚠ 只信清单里的哈希，不信响应头（X-Kernel-* 与文件出自同一台服务器）
+        got_sha = exe_sha256(zpath)
+        if got_sha != want_sha:
+            _silent_remove(zpath)
+            return ("内核包与签名清单不一致（收到 %s…，应为 %s…），已丢弃。\n"
+                    "可能是中控缓存的 zip 与清单不同步，或下载链路被替换。"
+                    % (got_sha[:12], want_sha[:12])), cur_ver
+        if want_size and size != want_size:
+            _silent_remove(zpath)
+            return ("内核包大小与清单不符（收到 %d，应为 %d 字节），已丢弃。"
+                    % (size, want_size)), cur_ver
         if emit:
-            emit(event="log", msg="⬇ 下载完成 %.1f MB%s，解压中..." % (
-                size / 1048576.0, ("，版本 " + new_ver) if new_ver else ""))
-        if force and new_ver and new_ver == cur_ver and os.path.isfile(exe_path):
-            try:
-                os.remove(zpath)
-            except OSError:
-                pass
+            emit(event="log", msg="⬇ 下载完成 %.1f MB（签名校验通过），解压中..." % (
+                size / 1048576.0))
+        if force and want_ver and want_ver == cur_ver and os.path.isfile(exe_path):
+            _silent_remove(zpath)
             if emit:
                 emit(event="log", msg="✓ 已是最新版本 %s，无需覆盖" % cur_ver)
             return None, cur_ver
@@ -1411,11 +2016,8 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
                 os.replace(exe_path, exe_path + ".old")   # 允许改名运行中的 exe
             except OSError:
                 pass
-        err = extract_kernel_zip(zpath, kernel_dir, k["exe"])
-        try:
-            os.remove(zpath)
-        except OSError:
-            pass
+        err = extract_kernel_zip(zpath, kernel_dir, k["exe"], dest_dir=kdir)
+        _silent_remove(zpath)
         if err:
             return err, cur_ver
         if not os.path.isfile(exe_path):
@@ -1427,12 +2029,12 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
                     os.remove(p)
         except OSError:
             pass
-        save_kernel_version(kernel_key, kernel_dir, new_ver,
-                            meta.get("X-Kernel-Name") or "")
+        # 版本号取签名清单里的，不取响应头
+        save_kernel_version(kernel_key, kernel_dir, want_ver, want_file)
         if emit:
             emit(event="log", msg="✓ 内核已就绪%s" % (
-                ("（%s → %s）" % (cur_ver or "未记录", new_ver)) if new_ver else ""))
-        return None, new_ver or cur_ver
+                ("（%s → %s）" % (cur_ver or "未记录", want_ver)) if want_ver else ""))
+        return None, want_ver or cur_ver
     except Exception as e:  # noqa: BLE001
         msg = str(e)
         if "401" in msg or "Unauthorized" in msg:
@@ -1445,15 +2047,30 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
 
 
 def fetch_kernel_catalog(server, token, timeout=20):
-    """向中控要最新内核版本表（矿机端连不上 GitHub，靠中控代查）。失败返回 {}。"""
+    """向中控要最新内核版本表（矿机端连不上 GitHub，靠中控代查）。失败返回 {}。
+
+    注意：这是**展示用**数据，不代表可安装 —— 能否安装以签名清单为准。
+    这里把每个条目标上 signed / signed_version，免得 UI 显示「最新 vX」但点更新
+    才被拒绝。
+    """
     if not server:
         return {}
     try:
         d = http_json(server.rstrip("/") + "/api/kernel_catalog", timeout=timeout,
                       headers={"X-Rig-Token": token or ""})
-        return d.get("catalog") or {}
+        catalog = d.get("catalog") or {}
     except Exception:  # noqa: BLE001
         return {}
+    manifest, _err = fetch_signed_manifest(server, timeout=min(timeout, 12))
+    signed = (manifest or {}).get("kernels") or {}
+    for name, meta in catalog.items():
+        if not isinstance(meta, dict):
+            continue
+        entry = signed.get(name) or {}
+        meta["signed"] = bool(entry) and (
+            str(entry.get("sha256") or "").lower() == str(meta.get("sha256") or "").lower())
+        meta["signed_version"] = str(entry.get("version") or "")
+    return catalog
 
 
 def refresh_rates(server="", token="", rig=""):
@@ -1645,10 +2262,11 @@ class MiningEngine:
         if cmd == "update_client":
             srv = self.cfg.get("server") or ""
             need, _local, latest = client_update_status(srv)
-            if not latest:
-                return False, "中控上没有可用的客户端安装包"
+            if not latest.get("ok"):
+                return False, latest.get("error") or "拿不到可用的升级清单"
             if not need:
-                return True, "客户端已是最新（v%s）" % CLIENT_VERSION
+                return True, "客户端已是最新（v%s，签名版本 v%s）" % (
+                    CLIENT_VERSION, latest.get("version") or "?")
             ok, note = apply_client_update(srv, latest, emit=self.emit,
                                            before_exit=self._kill)
             if ok:
@@ -1697,6 +2315,22 @@ class MiningEngine:
         if cmd == "restart_miner":
             self._kill()  # 引擎主循环 10 秒内自动拉起
             return True, "矿工已重启"
+        if cmd == "set_display_name":
+            # 中控远程改名（R6 / D6）：静默保存，不弹窗打断用户
+            disp = str(arg.get("display_name") or "").strip()
+            if not disp:
+                return False, "显示名为空"
+            if len(disp) > 32:
+                return False, "显示名最长 32 个字符"
+            old = self.cfg.get("display_name") or ""
+            if old == disp:
+                return True, "显示名未变化（%s）" % disp
+            self.cfg["display_name"] = disp
+            self._persist_cfg()
+            self.emit(event="display_name", display_name=disp)
+            # D6：不弹窗，只在日志区留一行
+            self.emit(event="log", msg="中控已重命名本机：%s → %s" % (old or "未设置", disp))
+            return True, "显示名已更新为 %s" % disp
         return False, "未知命令: %s" % cmd
 
     def _kill(self, wait=10):
@@ -1934,6 +2568,8 @@ class MiningEngine:
                         http_json(self.cfg["server"].rstrip("/") + "/api/report",
                                   timeout=12, method="POST", payload={
                                       "name": self.cfg.get("rig_name") or socket.gethostname().lower(),
+                                      # display_name 是中控展示名（可改）；name 是机器身份（不可改）
+                                      "display_name": self.cfg.get("display_name") or "",
                                       "token": self.cfg["token"],
                                       "client_version": CLIENT_VERSION,
                                       "hostname": socket.gethostname(),
@@ -2140,12 +2776,29 @@ class TrayIcon:
             pass
 
     def stop(self):
+        """停止托盘图标，并确保通知区里的图标被真正注销。
+
+        pystray 的 Icon.stop() 只 join setup 线程，主循环线程里的
+        NIM_DELETE（_hide）是异步的——如果进程紧接着 os._exit(0)，
+        图标就会以「幽灵」形式残留在通知区（鼠标移上去还在、点了没反应）。
+        这里额外等一小段时间，让 NIM_DELETE 有机会跑完。
+        """
+        ic = self.icon
+        self.icon = None
+        if not ic:
+            return
         try:
-            if self.icon:
-                self.icon.stop()
+            ic.stop()
         except Exception:  # noqa: BLE001
             pass
-        self.icon = None
+        # pystray 的 _hide() 在主循环 finally 里执行，等它自然结束
+        try:
+            th = getattr(ic, "_thread", None)
+            if th is not None and th.is_alive():
+                th.join(timeout=3.0)
+        except Exception:  # noqa: BLE001
+            pass
+        time.sleep(0.3)
 
 
 # ---------------------------------------------------------------- GUI
@@ -2165,7 +2818,10 @@ def run_gui():
         log_write("启动被拦：已有一个实例在运行（单实例互斥锁被占）")
         # 把已有实例的窗口调到前台，而不是弹「已在运行」错误框——
         # 用户双击多次的预期就是「调出界面」，不是报错
-        hwnd = _find_app_window()
+        # 注意：_find_app_window 已在托盘幂等改造中改名为 _find_app_windows（复数），
+        # 这里必须用复数版，否则 NameError → 整个单实例分支炸掉。
+        _wins = _find_app_windows()
+        hwnd = _wins[-1] if _wins else 0
         if hwnd:
             try:
                 u32 = ctypes.windll.user32
@@ -2174,13 +2830,28 @@ def run_gui():
                 return 1
             except Exception:  # noqa: BLE001
                 pass
-        import ctypes
+        # 注意：这里不要写 "import ctypes"。
+        # 本函数（run_gui）里如果出现 "import ctypes"，Python 会把 ctypes
+        # 判定为 run_gui 的局部变量，于是 run_gui 内所有嵌套函数
+        # （open_window 等）引用 ctypes.xxx 时都会抛
+        # NameError: cannot access free variable 'ctypes' ...
+        # 那会让「复用已有窗口」分支静默失败，退化成每次点托盘都新开窗口
+        # —— 正是用户反馈的「点几次就出来几个界面」。
+        # 文件顶部已有模块级 import ctypes，直接用即可。
         ctypes.windll.user32.MessageBoxW(
             0, "本机已经有一个 扒皮矿工·矿机端在运行。\n\n"
                "同时跑多个实例会互相抢显卡，算力不会翻倍，反而会明显下降。\n"
                "请切换到已打开的那个窗口（或先关掉它再启动本程序）。",
             "扒皮矿工已在运行", 0x00000030)
         return 1
+
+    # 内核目录改结构为「每内核一个子目录」：
+    # 旧布局把不同内核的文件平铺到同一目录，
+    # WildRig 带加壳自校验，同目录混入别的内核文件会被判定为篡改。
+    try:
+        _migrate_kernel_layout()
+    except Exception as e:  # noqa: BLE001
+        log_write("内核目录整理异常: %r" % e)
 
     cfg = {}
     if os.path.isfile(CONFIG_FILE):
@@ -2192,9 +2863,12 @@ def run_gui():
         cfg.setdefault(k, v)
     if not cfg.get("server"):
         cfg["server"] = DEFAULT_CFG["server"]
+    # 内核目录检测一径条件：
+    # 检测应当在“内核子目录”下，
+    # 老布局是平铺在根目录，新布局已分目录。
     if cfg.get("kernel_dir") and not any(
-            os.path.isfile(os.path.join(cfg["kernel_dir"], k["exe"]))
-            for k in KERNELS.values()):
+            os.path.isfile(os.path.join(kernel_dir_for(k, cfg["kernel_dir"]), v["exe"]))
+            for k, v in KERNELS.items()):
         cfg["kernel_dir"] = DEFAULT_CFG["kernel_dir"]
     if not cfg.get("token"):
         cfg["token"] = "rig-" + os.urandom(8).hex()
@@ -2203,6 +2877,9 @@ def run_gui():
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except OSError:
             pass
+    # display_name 初始取 rig_name（机器身份不可改，显示名可改）
+    if not cfg.get("display_name"):
+        cfg["display_name"] = cfg.get("rig_name") or socket.gethostname().lower()
 
     q = queue.Queue()
     engine = MiningEngine(cfg, q)
@@ -2219,6 +2896,7 @@ def run_gui():
             "server": cfg["server"], "token": cfg["token"],
             "rig_name": cfg["rig_name"], "worker": cfg["worker"],
             "kernel_dir": cfg["kernel_dir"], "pool_url": cfg["pool_url"],
+            "display_name": cfg.get("display_name") or cfg["rig_name"],
         },
         "toggles": {
             "autostart": bool(cfg.get("autostart")),
@@ -2228,6 +2906,8 @@ def run_gui():
             "check_other_miners": bool(cfg.get("check_other_miners", True)),
             "auto_update": bool(cfg.get("auto_update", True)),
         },
+        # 首次登录待改密：{"username":..., "password":...}，非空时界面渲染改密表单
+        "acct_pwd_pending": {},
     }
     latest_meta = {}            # kernel_key -> 中控版本条目
     conflict_items = []
@@ -2588,6 +3268,7 @@ def run_gui():
             "games": parse_games(f["games"]),
             "server": f["server"].strip(), "token": f["token"].strip(),
             "rig_name": f["rig_name"].strip() or socket.gethostname().lower(),
+            "display_name": f.get("display_name", "").strip() or c.get("display_name") or "",
         })
         return c
 
@@ -2644,8 +3325,21 @@ def run_gui():
         elif key == "auto_update":
             engine.cfg["auto_update"] = bool(val)
 
+    # D7：这些字段在客户端**只读**，任何写入请求一律丢弃。
+    #   server / token —— 决定矿机连到哪台中控、以什么身份上报。
+    #                    可改 = 可被指向假中控，或冒充他人矿机抢槽位。
+    #   rig_name —— 机器身份。改了服务端 WHERE name=? 匹配不上 → 矿机看似掉线。
+    READONLY_FIELDS = ("server", "token", "rig_name")
+
     def set_field(key, val):
         if key not in S["fields"]:
+            return
+        if key in READONLY_FIELDS:
+            append_log("⚠ 「%s」不可修改（中控地址 / 接入码 / 机器标识由中控统一管理）"
+                       % {"server": "中控地址", "token": "接入口令",
+                          "rig_name": "机器标识"}[key])
+            # 把界面值回滚成当前真实值
+            push({"t": "field_reset", key: key, val: S["fields"].get(key, "")})
             return
         S["fields"][key] = str(val)
         if key == "games":
@@ -2653,6 +3347,178 @@ def run_gui():
         elif key == "kernel_dir":
             refresh_kernels()
             refresh_kchips()
+        elif key == "display_name":
+            # 显示名可改：立即落盘并随下次 report 同步到中控
+            cfg["display_name"] = str(val).strip()
+            persist_cfg()
+
+    # ---------------- 中控账号（多用户） ----------------
+    def acct_payload():
+        """当前中控账号态，供 UI 渲染。"""
+        pend = S.get("acct_pwd_pending") or {}
+        return {"logged": bool(cfg.get("user_token")),
+                "username": cfg.get("username") or "",
+                "user_id": int(cfg.get("user_id") or 0),
+                "is_admin": bool(cfg.get("is_admin")),
+                # 归属状态：登录成功后由服务端告知（bound=True 表示本次登录
+                # 把无主矿机绑定到了本账号）；解绑后置 False。
+                "bound": bool(cfg.get("rig_bound")),
+                # 待改密状态：首次登录被要求改密时非空，界面据此渲染改密表单
+                "pwd_required": ({"username": pend.get("username") or ""}
+                                 if pend else None)}
+
+    def push_acct():
+        push({"t": "acct", "acct": acct_payload()})
+
+    def _server_api(path, payload=None, method="POST", timeout=15):
+        """调用中控 HTTP 接口（带机器接入码）。返回 dict 或 None。"""
+        base = (cfg.get("server") or "").rstrip("/")
+        if not base:
+            return {"ok": False, "error": "未配置中控地址"}
+        try:
+            return http_json(base + path, timeout=timeout, method=method,
+                             headers={"X-Rig-Token": cfg.get("token") or ""},
+                             payload=payload)
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "error": str(e)}
+
+    def do_user_login(username, password):
+        """矿机端登录 → 中控校验机器身份 + 账号密码 → 首次登录自动绑定本机。"""
+        username = (username or "").strip()
+        if not username or not password:
+            push({"t": "toast", "kind": "warn", "msg": "请填写用户名和密码"})
+            return
+        push({"t": "toast", "kind": "", "msg": "正在登录中控…"})
+        r = _server_api("/api/rig_login",
+                        {"rig": cfg.get("rig_name") or socket.gethostname().lower(),
+                         "username": username, "password": password})
+        if not r or not r.get("ok"):
+            msg = (r or {}).get("error") or "登录失败"
+            push({"t": "toast", "kind": "err", "msg": "登录失败：" + msg})
+            append_log("✕ 中控登录失败：%s" % msg)
+            return
+        # ★ 部署预置账号：首次登录必须先改密（服务端不放行 token）
+        if r.get("need_password_change"):
+            S["acct_pwd_pending"] = {"username": username, "password": password}
+            push({"t": "acct_pwd_required", "username": username})
+            push({"t": "toast", "kind": "warn",
+                  "msg": "首次登录：请先设置新密码"})
+            append_log("首次登录要求修改初始密码")
+            return
+        u = r.get("user") or {}
+        cfg["user_token"] = r.get("token") or ""
+        cfg["username"] = u.get("username") or username
+        cfg["user_id"] = int(u.get("id") or 0)
+        cfg["is_admin"] = bool(u.get("is_admin"))
+        # 服务端会回传 bound 标志：本机此前是无主矿机（首次绑定）还是已属该账号
+        bound = bool(r.get("bound"))
+        cfg["rig_bound"] = True
+        persist_cfg()
+        push_acct()
+        if bound:
+            push({"t": "toast", "kind": "",
+                  "msg": "✓ 已登录 %s，本机已绑定到该账号" % cfg["username"]})
+            append_log("✓ 已登录中控账号 %s，本机绑定到该账号名下" % cfg["username"])
+        else:
+            push({"t": "toast", "kind": "",
+                  "msg": "✓ 已登录 %s（本机此前已属该账号）" % cfg["username"]})
+            append_log("✓ 已登录中控账号 %s" % cfg["username"])
+
+    def do_user_register(username, password):
+        """矿机端注册 → 拿到账号后自动登录完成挂载。"""
+        username = (username or "").strip()
+        if not username or not password:
+            push({"t": "toast", "kind": "warn", "msg": "请填写用户名和密码"})
+            return
+        push({"t": "toast", "kind": "", "msg": "正在注册…"})
+        base = (cfg.get("server") or "").rstrip("/")
+        try:
+            r = http_json(base + "/api/auth/register", timeout=15, method="POST",
+                          payload={"username": username, "password": password})
+        except Exception as e:  # noqa: BLE001
+            r = {"ok": False, "error": str(e)}
+        if not r or not r.get("ok"):
+            msg = (r or {}).get("error") or "注册失败"
+            push({"t": "toast", "kind": "err", "msg": "注册失败：" + msg})
+            append_log("✕ 中控注册失败：%s" % msg)
+            return
+        append_log("✓ 中控账号 %s 注册成功，正在登录…" % username)
+        do_user_login(username, password)
+
+    def do_user_logout():
+        """退出登录：只清本地登录态，本机仍归原账号（解绑是另一个动作）。"""
+        tok = cfg.get("user_token") or ""
+        if tok:
+            try:
+                http_json((cfg.get("server") or "").rstrip("/") + "/api/auth/logout",
+                          timeout=8, method="POST",
+                          headers={"X-User-Token": tok}, payload={})
+            except Exception:  # noqa: BLE001
+                pass
+        cfg["user_token"] = ""
+        cfg["username"] = ""
+        cfg["user_id"] = 0
+        cfg["is_admin"] = False
+        persist_cfg()
+        push_acct()
+        push({"t": "toast", "kind": "", "msg": "已退出中控账号"})
+        append_log("已退出中控账号登录")
+
+    def do_user_unbind():
+        """解绑本机：解除本机与当前账号的归属关系。"""
+        tok = cfg.get("user_token") or ""
+        if not tok:
+            push({"t": "toast", "kind": "warn", "msg": "当前未登录，无法解绑"})
+            return
+        base = (cfg.get("server") or "").rstrip("/")
+        try:
+            r = http_json(base + "/api/rig_unbind", timeout=15, method="POST",
+                          headers={"X-User-Token": tok},
+                          payload={"rig": cfg.get("rig_name") or socket.gethostname().lower()})
+        except Exception as e:  # noqa: BLE001
+            r = {"ok": False, "error": str(e)}
+        if not r or not r.get("ok"):
+            msg = (r or {}).get("error") or "解绑失败"
+            push({"t": "toast", "kind": "err", "msg": "解绑失败：" + msg})
+            return
+        do_user_logout()
+        cfg["rig_bound"] = False
+        persist_cfg()
+        push_acct()
+        push({"t": "toast", "kind": "",
+              "msg": "已解绑本机（变回未绑定，可用其他账号登录绑定）"})
+        append_log("已解绑本机与账号的归属关系，本机回到未绑定状态")
+
+    def do_user_change_password(old_pwd, new_pwd):
+        """修改中控账号密码（首次登录强制改密 / 自助改密）。"""
+        old_pwd = str(old_pwd or "")
+        new_pwd = str(new_pwd or "")
+        if not old_pwd or not new_pwd:
+            push({"t": "toast", "kind": "warn", "msg": "请填写原密码和新密码"})
+            return
+        if len(new_pwd) < 6:
+            push({"t": "toast", "kind": "warn", "msg": "新密码至少 6 位"})
+            return
+        pend = S.get("acct_pwd_pending") or {}
+        username = pend.get("username") or cfg.get("username") or ""
+        base = (cfg.get("server") or "").rstrip("/")
+        try:
+            r = http_json(base + "/api/auth/change_password", timeout=15, method="POST",
+                          headers={"Content-Type": "application/json"},
+                          payload={"username": username,
+                                   "old_password": old_pwd,
+                                   "new_password": new_pwd})
+        except Exception as e:  # noqa: BLE001
+            r = {"ok": False, "error": str(e)}
+        if not r or not r.get("ok"):
+            msg = (r or {}).get("error") or "修改失败"
+            push({"t": "toast", "kind": "err", "msg": "修改密码失败：" + msg})
+            append_log("✕ 修改密码失败：%s" % msg)
+            return
+        append_log("✓ 已修改中控账号 %s 的密码" % username)
+        # 改密后用新密码重新登录并完成绑定
+        S["acct_pwd_pending"] = {}
+        do_user_login(username, new_pwd)
 
     # ---------------- 退出 / 托盘 ----------------
     tray = TrayIcon(None, engine, q)
@@ -2710,6 +3576,16 @@ def run_gui():
             if changed:
                 persist_cfg()
                 append_log("✓ 已同步中控下发的配置：%s" % "、".join(changed))
+        elif kind == "display_name":
+            # 中控远程改名（R6 / D6）：静默同步到界面，不弹窗
+            disp = str(ev.get("display_name") or "")
+            S["fields"]["display_name"] = disp
+            cfg["display_name"] = disp
+            persist_cfg()
+            push({"t": "display_name", "display_name": disp})
+        elif kind == "acct_pwd_required":
+            # 首次登录需修改初始密码：弹改密表单
+            push({"t": "acct_pwd_required", "username": ev.get("username") or ""})
         elif kind == "_speedtest_apply":
             speedtest_apply()
         elif kind == "income_meta":
@@ -2876,6 +3752,17 @@ def run_gui():
             set_toggle(args.get("key"), args.get("val"))
         elif op == "set_field":
             set_field(args.get("key"), args.get("val"))
+        elif op == "user_login":
+            do_user_login(args.get("username"), args.get("password"))
+        elif op == "user_register":
+            do_user_register(args.get("username"), args.get("password"))
+        elif op == "user_logout":
+            do_user_logout()
+        elif op == "user_unbind":
+            do_user_unbind()
+        elif op == "user_change_password":
+            do_user_change_password(args.get("old_password"),
+                                    args.get("new_password"))
         elif op == "pick_kernel":
             pick_kernel(args.get("key"))
         elif op == "select_kernel":
@@ -2903,7 +3790,12 @@ def run_gui():
             webbrowser.open((S["fields"]["server"].strip()
                              or "http://mine.sinyerobot.com:8099") + "/")
         elif op == "open_kernel_dir":
-            d = S["fields"]["kernel_dir"].strip()
+            # 打开「当前选定内核」的子目录（不是根目录：
+            # 各内核以及其附属文件单独一个目录，加壳自校验不会误报「
+            # 被篡改」）。根目录打开只让人看懂分子目录。
+            root = S["fields"]["kernel_dir"].strip()
+            kdir = kernel_dir_for(S["kernel"], root)
+            d = kdir if (kdir and os.path.isdir(kdir)) else root
             if d and os.path.isdir(d):
                 os.startfile(d)  # noqa: S606
             else:
@@ -2959,22 +3851,45 @@ def run_gui():
             "kernel_rows": kernel_rows_payload(),
             "income": income_payload(),
             "rig": {"wallet": short_addr(S["fields"]["wallet"]) or "未设置"},
+            "acct": acct_payload(),
             "conflict": {"on": False, "text": ""},
             "poll_base": _ob_ver[0],
         }
 
     # ---------------- Edge app 窗口 ----------------
+    # 「打开界面」的启动中状态：Edge app 窗口是异步创建的（点开后约 1~3 秒
+    # 窗口才出现、标题才写上），这段窗口期里做「有没有窗口」的快照判断必然
+    # 落空 -> 再次点击又去 Popen 一个 -> 桌面上就堆出一排一模一样的窗口。
+    # 用这个状态把「已经在启动中」也算作「已有窗口」，杜绝重复发起。
+    _ui_launch_ts = [0.0]
+    # 冷启动期（Edge 进程刚拉起、窗口标题还没写上）内重复触发不再新开窗口。
+    # 6 秒足够 Edge 建好窗口（实测 1~3 秒），又不会让用户「点一下没反应」。
+    _UI_LAUNCH_COOLDOWN = 6.0
+
     def open_window():
-        # 已有矿机端窗口（托盘「打开主界面」连点/重复触发）→ 恢复并前置，不再开新的
-        hwnd = _find_app_window()
-        if hwnd:
+        # 1) 已经有矿机端窗口 → 只保留一个，恢复并前置，绝不开新的
+        wins = _find_app_windows()
+        if wins:
+            hwnd = wins[-1]
+            if len(wins) > 1:
+                _keep_only_one_app_window()
             try:
                 u32 = ctypes.windll.user32
-                u32.ShowWindow(hwnd, 9)          # SW_RESTORE：最小化时还原
-                u32.SetForegroundWindow(hwnd)
+                u32.ShowWindow.argtypes = [_wt.HWND, ctypes.c_int]
+                u32.ShowWindow.restype = _wt.BOOL
+                u32.SetForegroundWindow.argtypes = [_wt.HWND]
+                u32.SetForegroundWindow.restype = _wt.BOOL
+                u32.ShowWindow(int(hwnd), 9)      # SW_RESTORE：最小化时还原
+                u32.SetForegroundWindow(int(hwnd))
+                log_write("调出界面：复用已有窗口（当前 %d 个）" % len(wins))
                 return True
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception as e:  # noqa: BLE001
+                log_write("调出界面：复用失败(%r)，改为新开" % (e,))
+        # 2) 正在启动中（窗口还没建出来）→ 不重复发起，交给已有的那次
+        now = time.time()
+        if _ui_launch_ts[0] and (now - _ui_launch_ts[0]) < _UI_LAUNCH_COOLDOWN:
+            log_write("调出界面：窗口正在创建中，忽略本次重复触发")
+            return True
         for cand in (
                 os.path.join(os.environ.get("PROGRAMFILES(X86)", r"C:\Program Files (x86)"),
                              r"Microsoft\Edge\Application\msedge.exe"),
@@ -2982,6 +3897,7 @@ def run_gui():
                              r"Microsoft\Edge\Application\msedge.exe")):
             if os.path.isfile(cand):
                 try:
+                    _ui_launch_ts[0] = now
                     # 注意：不能用 popen_hidden——SW_HIDE 会让 Edge 连窗口一起藏掉
                     subprocess.Popen(
                         [cand,
@@ -2990,6 +3906,7 @@ def run_gui():
                          "--user-data-dir=" + os.path.join(BASE, "ui-profile"),
                          "--no-first-run", "--no-default-browser-check"],
                         cwd=BASE, close_fds=True)
+                    log_write("调出界面：已启动 Edge app 窗口")
                     return True
                 except Exception as e:  # noqa: BLE001
                     log_write("Edge app 启动失败: %s" % e)
@@ -3012,6 +3929,49 @@ def run_gui():
 
     threading.Thread(target=pump_loop, daemon=True).start()
     install_watchdog()   # 每 3 分钟自检客户端进程，意外退出自动拉起
+
+    # UI 窗口唯一性巡检：Edge app 窗口不受我们进程管辖，任何一次「打开界面」
+    # 判定失手都会在桌面上多留一个窗口，用户看到的就是任务栏一排同名缩略图。
+    # 这里每 20 秒扫一次，发现超过 1 个就收敛成 1 个（自愈，不依赖判定是否命中）。
+    def ui_window_guard():
+        while not quitting[0]:
+            try:
+                time.sleep(20.0)
+                if quitting[0]:
+                    return
+                _keep_only_one_app_window()
+            except Exception:  # noqa: BLE001
+                pass
+    threading.Thread(target=ui_window_guard, daemon=True).start()
+
+    # ---------------- 同进程自检（托盘幂等） ----------------
+    # 托盘「打开界面」必须幂等：点 N 次，桌面上只能有 1 个矿机端窗口。
+    # 外部自动化（UIA / 物理点击 / PostMessage）在这台机上都无法可靠触发
+    # 托盘回调（Win11 通知区是 XAML island，且跨进程消息被 UIPI 拦），
+    # 所以在这里用「自己调自己」的方式做真实验证：代码路径、线程、权限
+    # 全是生产环境的那一套。
+    def _selftest_tray_idempotent(times=8, gap=2.5):
+        try:
+            gap = float(os.environ.get("BAPIMINER_SELFTEST_GAP") or gap)
+            log_write("=== 托盘幂等自检开始（连调 %d 次，间隔 %.1fs）===" % (times, gap))
+            counts = []
+            for i in range(times):
+                open_window()
+                time.sleep(gap)
+                n = len(_find_app_windows())
+                counts.append(n)
+                log_write("  自检 #%d -> 矿机端窗口数=%d" % (i + 1, n))
+            log_write("=== 托盘幂等自检结果：%s ===" % (counts,))
+            if all(c <= 1 for c in counts):
+                log_write("托盘幂等自检 PASS：窗口数恒 <= 1")
+            else:
+                log_write("托盘幂等自检 FAIL：窗口堆叠 %s" % (counts,))
+                _keep_only_one_app_window()
+        except Exception as e:  # noqa: BLE001
+            log_write("托盘幂等自检异常: %r" % e)
+
+    if os.environ.get("BAPIMINER_SELFTEST_TRAY"):
+        threading.Thread(target=_selftest_tray_idempotent, daemon=True).start()
 
     def boot_seq():
         time.sleep(2.0)

@@ -8,7 +8,7 @@ from PyInstaller.utils.win32 import versioninfo as vi
 _BRAND_ICO = os.path.join(SPECPATH, '..', 'brand', 'export', 'bapiminer.ico')
 
 # exe 属性（资源管理器右键 → 属性 → 详细信息）统一品牌信息
-_APP_VERSION = (1, 12, 0, 4)
+_APP_VERSION = (1, 13, 0, 1)
 _VERSION_INFO = vi.VSVersionInfo(
     ffi=vi.FixedFileInfo(
         filevers=_APP_VERSION, prodvers=_APP_VERSION,
@@ -18,12 +18,12 @@ _VERSION_INFO = vi.VSVersionInfo(
             vi.StringTable('080404b0', [
                 vi.StringStruct('CompanyName', '芯烨 Sinye'),
                 vi.StringStruct('FileDescription', '扒皮矿工·矿机端'),
-                vi.StringStruct('FileVersion', '1.12.0.4'),
+                vi.StringStruct('FileVersion', '1.13.0.1'),
                 vi.StringStruct('InternalName', 'BaPiMiner'),
                 vi.StringStruct('LegalCopyright', 'Copyright (C) 2026 芯烨 Sinye'),
                 vi.StringStruct('OriginalFilename', 'BaPiMiner.exe'),
                 vi.StringStruct('ProductName', '扒皮矿工 BaPiMiner'),
-                vi.StringStruct('ProductVersion', '1.12.0.4'),
+                vi.StringStruct('ProductVersion', '1.13.0.1'),
             ])]),
         vi.VarFileInfo([vi.VarStruct('Translation', [2052, 1200])]),
     ])

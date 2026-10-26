@@ -34,6 +34,10 @@
     GET  /api/downloads                           安装包清单（大小/时间/sha256）
     GET  /download/<文件名>                        下载矿机端 exe / 安卓 apk（支持 Range 续传）
 
+升级签名（矿机端只信签名清单，不信这里返回的任何裸字段）:
+    GET  /api/signed_manifest                     已签名的升级清单（client + kernels 的 sha256）
+    GET  /api/health                              存活 + server_version + build_commit + 清单摘要
+
 数据: data/fleet.db (SQLite, WAL)；samples 保留 7 天。
 告警: 矿机掉线 / 算力骤降(对比 1 小时均值 -25%) / GPU 高温(默认 83C)。
 收益: 每 10 分钟从性价比榜服务拉 PRL 实时收益率(USDT/TH/s/天)折算。
@@ -62,6 +66,7 @@ DB_FILE = os.path.join(DATA_DIR, "fleet.db")
 CONFIG_FILE = os.path.join(BASE_DIR, "config.json")
 
 PORT = int(os.environ.get("PORT", "8099"))
+SERVER_VERSION = "3.1.0"          # 与 /api/health 一起暴露，便于确认线上跑的是哪一版
 OFFLINE_SEC = int(os.environ.get("OFFLINE_SEC", "150"))
 SAMPLE_KEEP_DAYS = 7
 TEMP_WARN_C = float(os.environ.get("TEMP_WARN", "83"))
@@ -81,6 +86,24 @@ _rate_meta_lc = {}      # 小写型号 -> 原始键（大小写不敏感匹配�
 _rate_avg = 0.0         # 全表加权均价 USDT/TH/s/天（Σusdt/Σths），收益按总算力计算
 _cny_rate = 6.67        # USDT->CNY 实时汇率（动态拉取，失败时兜底）
 _rate_ts = 0.0
+
+# ---------------------------------------------------------------- 币价行情
+# 群控台顶部展示的实时币价。
+# 数据源优先级：SafeTrade 公开行情 API（Pearl 主交易场所）→ Gate.io → 其它公共源。
+# ★ 生产服务器出口 IP 会被 SafeTrade 重置连接（Connection reset by peer），
+#   故必须有兜底源；Gate.io 允许跨域且含 PEARL_USDT，实测可用。
+_price_lock = threading.Lock()
+_price_map = {}         # 币种符号(大写) -> {last, change, high, low, volume, src}
+_price_ts = 0.0
+_price_src = ""
+
+# 展示的币种顺序（与页面一致）
+# ★ 只保留平台收益币种珍珠币（PEARL）。需求明确「只要珍珠币的币价」，
+#   多币种既拖慢每次刷新（每个源都要多打几次 HTTP），又稀释页面重点。
+#   结构保留列表形式：以后要加币种只需在这里加一行，不用改抓取器与前端。
+PRICE_COINS = [
+    ("PRL", "PEARL", "珍珠币"),   # 平台收益币种（vminers 榜单口径就是 PRL）
+]
 
 # ---------------------------------------------------------------- 配置
 
@@ -805,6 +828,215 @@ def _fetch_cny_rate():
 def rate_cny():
     with _rate_lock:
         return _cny_rate
+
+
+# ---------------------------------------------------------------- 币价抓取
+
+def _http_get_json(url, timeout=12):
+    """带 UA 的 GET，返回解析后的 JSON；失败抛异常。"""
+    req = urllib.request.Request(url, headers={"User-Agent": "bapiminer/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        raw = r.read().decode("utf-8", "replace")
+    return json.loads(raw)
+
+
+def _num(v, default=None):
+    """安全转 float：None/空串/非数字/NaN/Inf 一律返回 default。
+
+    ★ 行情接口的字段全是字符串，且异常时可能返回 "not-a-number" 这类脏值。
+      不做校验的话脏值会一路混进价格表，前端展示成 NaN。
+    """
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return default
+    if f != f or f in (float("inf"), float("-inf")):   # NaN / Inf
+        return default
+    return f
+
+
+def _fetch_prices_safetrade():
+    """SafeTrade 公开行情 API（无需鉴权）。
+
+    单市场端点：GET {base}/trade/public/tickers/{market}
+    返回：{"id","name","base_unit","quote_unit","avg_price","high","last",
+           "low","open","price_change_percent","volume","amount"}
+    ★ /trade/public/tickers（不带 market）只返回市场名列表，没有价格，别用。
+    """
+    base = os.environ.get("SAFETRADE_BASE", "https://safe.trade/api/v2")
+    out = {}
+    for sym, market, _cn in PRICE_COINS:
+        # ★ SafeTrade 的 market id = 基础币+计价币 小写拼接，如 PEARL -> "pearlusdt"
+        mid = "%susdt" % market.lower()
+        try:
+            d = _http_get_json("%s/trade/public/tickers/%s" % (base, mid))
+            last = _num(d.get("last"), 0)
+            if last <= 0:
+                continue
+            chg = str(d.get("price_change_percent") or "0%").replace("%", "").strip()
+            out[sym] = {
+                "last": last,
+                "change": _num(chg, 0.0),
+                "high": _num(d.get("high")) or None,
+                "low": _num(d.get("low")) or None,
+                "volume": _num(d.get("volume")) or None,
+            }
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def _fetch_prices_gate():
+    """Gate.io 公开行情 API（允许跨域，生产服务器可直连）。
+
+    GET /api/v4/spot/tickers?currency_pair=BTC_USDT
+    返回：{"currency_pair","last","change_percentage","high_24h","low_24h",
+           "base_volume","quote_volume",...}
+    """
+    out = {}
+    for sym, market, _cn in PRICE_COINS:
+        try:
+            rows = _http_get_json(
+                "https://api.gateio.ws/api/v4/spot/tickers?currency_pair=%s_USDT" % market)
+            if not isinstance(rows, list) or not rows:
+                continue
+            d = rows[0]
+            last = _num(d.get("last"), 0)
+            if last <= 0:
+                continue
+            out[sym] = {
+                "last": last,
+                "change": _num(d.get("change_percentage"), 0.0),
+                "high": _num(d.get("high_24h")) or None,
+                "low": _num(d.get("low_24h")) or None,
+                "volume": _num(d.get("base_volume")) or None,
+            }
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+def _fetch_prices_coinbase():
+    """Coinbase 现货价兜底 —— ★ 当前已停用。
+
+    Coinbase 没有 Pearl(PRL) 交易对，拿不到平台收益币种，
+    而 _fetch_prices 只认「拿到了 PRL」的源，所以这个兜底永远不会被选中，
+    留着只是白打一次 HTTP。保留函数体仅作历史参考，_PRICE_FETCHERS 中不再引用。
+    """
+    out = {}
+    for sym, _market, _cn in PRICE_COINS:
+        if sym == "PRL":
+            continue
+        try:
+            d = _http_get_json("https://api.coinbase.com/v2/prices/%s-USD/spot" % sym)
+            last = _num((d.get("data") or {}).get("amount"), 0)
+            if last > 0:
+                out[sym] = {"last": last, "change": 0.0, "high": None,
+                            "low": None, "volume": None}
+        except Exception:  # noqa: BLE001
+            continue
+    return out
+
+
+# 按优先级排列的抓取器：SafeTrade 为首选（用户指定），Gate.io 为可靠兜底
+# ★ 只保留能提供 PRL(珍珠币) 的源 —— 平台收益口径就是 PRL，其他币种无业务意义。
+_PRICE_FETCHERS = [
+    ("SafeTrade", _fetch_prices_safetrade),
+    ("Gate.io", _fetch_prices_gate),
+]
+
+
+def _fetch_prices():
+    """依次尝试各数据源，取第一个能拿到 PRL（珍珠币）的结果。
+
+    ★ 只有拿到 PRL 才算成功 —— 平台只展示珍珠币的币价，
+      没有 PRL 的源一律不采纳（哪怕它返回了别的币种），
+      否则页面会显示与业务无关的币价。
+    """
+    global _price_ts, _price_src
+    best, best_src = {}, ""
+    for name, fn in _PRICE_FETCHERS:
+        try:
+            got = fn()
+        except Exception as e:  # noqa: BLE001
+            print("[price] %s 抓取异常: %s" % (name, e), flush=True)
+            continue
+        if not got:
+            continue
+        # ★ 聚合层再校验一次：各 fetcher 内部已做 _num 转换，
+        #   但这里是最后一道闸 —— 脏值（"not-a-number"/NaN/<=0）绝不能进价格表。
+        clean = {}
+        for sym, d in got.items():
+            if not isinstance(d, dict):
+                continue
+            last = _num(d.get("last"))
+            if not last or last <= 0:
+                continue
+            clean[sym] = {
+                "last": last,
+                "change": _num(d.get("change"), 0.0),
+                "high": _num(d.get("high")),
+                "low": _num(d.get("low")),
+                "volume": _num(d.get("volume")),
+            }
+        if not clean:
+            continue
+        # ★ 只认 PRL。数据源拿不到珍珠币 → 跳过，继续试下一个源。
+        if "PRL" not in clean:
+            continue
+        best, best_src = clean, name
+        break
+    if best:
+        with _price_lock:
+            _price_map.clear()
+            _price_map.update(best)
+            _price_ts = time.time()
+            _price_src = best_src
+        print("[price] 珍珠币价更新：PRL %s，来源 %s"
+              % (best.get("PRL", {}).get("last"), best_src), flush=True)
+    else:
+        print("[price] 珍珠币价抓取失败，沿用旧值", flush=True)
+
+
+def price_payload():
+    """对外返回的币价数据结构。"""
+    with _price_lock:
+        coins = []
+        for sym, market, cn in PRICE_COINS:
+            d = _price_map.get(sym)
+            if not d:
+                continue
+            last = _num(d.get("last"))
+            if not last or last <= 0:
+                continue
+            coins.append({
+                "symbol": sym,
+                "market": market,
+                "name": cn,
+                "last": last,
+                "change": _num(d.get("change"), 0.0),
+                "high": _num(d.get("high")),
+                "low": _num(d.get("low")),
+                "volume": _num(d.get("volume")),
+            })
+        return {
+            "ok": True,
+            "coins": coins,
+            "source": _price_src,
+            "ts": _price_ts,
+            "age": int(time.time() - _price_ts) if _price_ts else None,
+            "cny_rate": rate_cny(),
+        }
+
+
+def price_fetch_loop():
+    """币价后台刷新线程：启动时立刻拉一次，之后每 5 分钟一次。"""
+    while True:
+        try:
+            _fetch_prices()
+        except Exception as e:  # noqa: BLE001
+            print("[price] 刷新循环异常: %s" % e, flush=True)
+        time.sleep(300)
 
 
 def _cell_num(cell, pattern):
@@ -1730,15 +1962,20 @@ def client_release():
 
 
 def client_latest_payload():
-    """矿机端自更新用的最新客户端信息（不含 admin 鉴权，新装机也能查）。"""
+    """矿机端自更新用的最新客户端信息（不含 admin 鉴权，新装机也能查）。
+
+    client_release.json 里 "update_enabled": false 可全局冻结自动升级
+    （ready=false → 矿机端视为无更新），用于灰度/定向推送期间冻住其他矿机。
+    """
     path = os.path.join(DOWNLOAD_DIR, "BaPiMiner.exe")
     ok = os.path.isfile(path)
     rel = client_release()
+    enabled = rel.get("update_enabled", True)
     return {
         "ok": True,
         "name": "BaPiMiner.exe",
         "url": "/download/BaPiMiner.exe",
-        "ready": ok,
+        "ready": ok and enabled,
         "size": os.path.getsize(path) if ok else 0,
         "sha256": _sha256_of(path) if ok else "",
         "mtime": int(os.path.getmtime(path)) if ok else 0,
@@ -1746,6 +1983,64 @@ def client_latest_payload():
         "notes": rel.get("notes") or "",
         "uploaded": rel.get("uploaded") or 0,
     }
+
+
+# ---------------------------------------------------------------- 签名升级清单
+# 矿机端只接受「用内置公钥验签通过」的清单。这个文件由发布机用离线私钥签发，
+# 中控只负责原样转发：绝不在这里解析后重新拼装 —— 多一个字段或少一个字段，
+# 签名就对不上，整条升级链路会 fail closed。
+SIGNED_MANIFEST = os.path.join(DATA_DIR, "signed_manifest.json")
+
+
+def signed_manifest_bytes():
+    """原样返回清单字节；文件缺失 / 不是合法 JSON / 缺关键字段时返回 None。"""
+    try:
+        with open(SIGNED_MANIFEST, "rb") as f:
+            raw = f.read()
+    except OSError:
+        return None
+    try:
+        doc = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError):
+        return None
+    if not (isinstance(doc, dict) and "sig" in doc and "client" in doc):
+        return None
+    return raw
+
+
+def signed_manifest_meta():
+    """给健康检查/看板用的摘要（不含签名内容本身）。"""
+    raw = signed_manifest_bytes()
+    if raw is None:
+        return {"present": False}
+    try:
+        doc = json.loads(raw.decode("utf-8-sig"))
+    except (UnicodeDecodeError, ValueError):
+        return {"present": False, "error": "invalid json"}
+    return {
+        "present": True,
+        "schema": doc.get("schema"),
+        "issued_at": doc.get("issued_at") or 0,
+        "client_version": (doc.get("client") or {}).get("version") or "",
+        "kernels": sorted((doc.get("kernels") or {}).keys()),
+    }
+
+
+def build_info():
+    """线上跑的是哪份代码：优先 data/build_info.json（部署时写入），其次环境变量。"""
+    info = {}
+    try:
+        with open(os.path.join(DATA_DIR, "build_info.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            info.update({k: d[k] for k in ("commit", "version", "built_at") if k in d})
+    except (OSError, ValueError):
+        pass
+    if not info.get("commit"):
+        info["commit"] = os.environ.get("BUILD_COMMIT", "")
+    info.setdefault("version", SERVER_VERSION)
+    info.setdefault("built_at", 0)
+    return info
 
 
 def _gh_api(url):
@@ -1782,11 +2077,7 @@ def kernel_check():
         except Exception as e:  # noqa: BLE001
             print("[kernel] 检查 %s 失败: %s" % (name, e))
     _kernel_meta["checked"] = time.time()
-    try:
-        with open(os.path.join(DATA_DIR, "kernel_meta.json"), "w", encoding="utf-8") as f:
-            json.dump(_kernel_meta, f, ensure_ascii=False, indent=1)
-    except OSError:
-        pass
+    _save_kernel_meta()
 
 
 def kernel_loop():
@@ -1811,6 +2102,36 @@ def load_kernel_meta():
                       flush=True)
     except (OSError, ValueError):
         pass
+    _backfill_cached_sha()
+
+
+def _save_kernel_meta():
+    try:
+        with open(os.path.join(DATA_DIR, "kernel_meta.json"), "w", encoding="utf-8") as f:
+            json.dump(_kernel_meta, f, ensure_ascii=False, indent=1)
+    except OSError:
+        pass
+
+
+def _backfill_cached_sha():
+    """给已缓存的内核 zip 补 sha256/size。
+
+    老版本只记了版本号；签发升级清单必须知道 zip 的哈希，没有它就签不了，
+    所以启动时按磁盘上的实际文件补一次（只补缺失的，不覆盖已有值）。
+    """
+    changed = False
+    for name, meta in (_kernel_meta.get("catalog") or {}).items():
+        if not isinstance(meta, dict) or meta.get("sha256"):
+            continue
+        path = os.path.join(KERNEL_DIR, "%s-%s.zip" % (name, meta.get("version")))
+        if os.path.isfile(path):
+            meta["sha256"] = _sha256_of(path)
+            meta["size"] = os.path.getsize(path)
+            changed = True
+            print("[kernel] 已补 %s 的 sha256（%s…）" % (name, meta["sha256"][:12]),
+                  flush=True)
+    if changed:
+        _save_kernel_meta()
 
 
 def kernel_download(name):
@@ -1835,6 +2156,10 @@ def kernel_download(name):
                         break
                     f.write(chunk)
             os.replace(dest + ".part", dest)
+            # 记录哈希：发布者签发升级清单时要用它（矿机端只认清单里的 sha256）
+            meta["sha256"] = _sha256_of(dest)
+            meta["size"] = os.path.getsize(dest)
+            _save_kernel_meta()
             return dest, None
         except Exception as e:  # noqa: BLE001
             err = e
@@ -2051,6 +2376,34 @@ class Handler(BaseHTTPRequestHandler):
         except Exception:  # noqa: BLE001
             return ""
 
+    def _is_app_webview(self):
+        """判断请求是否来自已安装的安卓 App 内嵌 WebView。
+
+        ★ 背景：uniapp 的 <web-view> 与 wap2app 的 launch_path 都硬编码指向
+          http://mine.sinyerobot.com:8099/（根路径）。官网首页占用了根路径后，
+          老 App 打开会变成营销页 —— 所以这里识别出 App 流量，仍返回群控台。
+
+        识别依据（命中任一即认为是 App）：
+          - HTML5+ 运行时标记：DCloud 系的 WebView UA 里含 "Html5plus" / "dcloud"
+          - uniapp / wap2app 的自定义 UA 关键字
+          - plusready 之前运行时还会带 "UCBrowser"（部分定制 WebView）
+
+        注意：这是「App 优先」的启发式判断，宁可多给群控台也不要让 App 用户
+        看到营销页 —— 因为营销页与群控台本来就有入口互通，误判代价极小。
+        """
+        ua = (self.headers.get("User-Agent") or "").lower()
+        if not ua:
+            return False
+        markers = (
+            "html5plus",   # DCloud HTML5+ 运行时
+            "dcloud",      # DCloud 官方标识
+            "uniapp",      # uni-app 自定义 UA
+            "minrigs",     # 本项目 App 自定义标识
+            "wap2app",     # wap2app 打包器
+            "plusruntime",
+        )
+        return any(m in ua for m in markers)
+
     def _auth(self):
         """解析身份。未登录返回 None。"""
         a = auth_context(self)
@@ -2131,7 +2484,16 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/health":
             c = db()
             n = c.execute("SELECT COUNT(*) n FROM rigs").fetchone()["n"]
-            return self._json({"ok": True, "rigs": n, "now": now_cn()})
+            bi = build_info()
+            return self._json({"ok": True, "rigs": n, "now": now_cn(),
+                               "server_version": SERVER_VERSION,
+                               "build_commit": bi.get("commit") or "",
+                               "built_at": bi.get("built_at") or 0,
+                               "signed_manifest": signed_manifest_meta()})
+
+        if p == "/api/price":
+            # 币价行情：公开只读，无需登录（页面顶部展示用）
+            return self._json(price_payload())
 
         if p == "/api/daily":
             auth = self._auth()
@@ -2205,8 +2567,17 @@ class Handler(BaseHTTPRequestHandler):
             # 公开：机主拿到链接就能下，清单里没有敏感信息
             return self._json(downloads_payload())
 
+        if p == "/api/signed_manifest":
+            # 公开：矿机端升级前必读。内容由发布私钥签名，中控改不动
+            #（改了签名就失效，矿机端会拒绝升级而不是装上一个坏包）。
+            raw = signed_manifest_bytes()
+            if raw is None:
+                return self._json({"ok": False, "error": "no signed manifest"}, 404)
+            return self._send(200, raw, "application/json; charset=utf-8")
+
         if p == "/api/client_latest":
-            # 公开：矿机端自更新要读；只暴露版本号与文件指纹，无敏感信息
+            # 公开：老版本矿机端仍在读这个接口（新版本改走 /api/signed_manifest）。
+            # 保留是为了让存量机器还能升上来，但它的 sha256 不可信、不参与校验。
             return self._json(client_latest_payload())
 
         if p.startswith("/download/"):
@@ -2291,12 +2662,65 @@ class Handler(BaseHTTPRequestHandler):
                 "X-Kernel-Key": name,
             })
 
+        # ---------------- 官网首页 / 群控台 ----------------
+        # ★ 根路径 "/" = 对外官网首页（营销页），群控台移到 "/group"。
+        #
+        #   为什么这样分：官网要给外部人看，登录页不是首页。
+        #   但已安装的 uniapp APK 里 <web-view> 硬编码指向
+        #   http://mine.sinyerobot.com:8099/（根路径），老 APK 打开会变成营销页。
+        #   对策是双保险：
+        #     ① 服务端按 UA 识别 HTML5+ 运行时（uniapp/wap2app 的 WebView），
+        #        仍把根路径返回群控台 —— 老 App 完全不受影响；
+        #     ② 首页前端再按 plus 对象做一次跳转兜底（防 UA 伪装/自定义 UA）。
+        #   两个条件都不满足时，根路径返回官网首页。
         if p in ("/", "/index.html"):
+            if p == "/index.html" or self._is_app_webview():
+                try:
+                    with open(os.path.join(STATIC_DIR, "index.html"), "rb") as f:
+                        return self._send(200, f.read(), "text/html; charset=utf-8")
+                except FileNotFoundError:
+                    return self._send(404, "dashboard missing", "text/plain")
+            try:
+                with open(os.path.join(STATIC_DIR, "home.html"), "rb") as f:
+                    return self._send(200, f.read(), "text/html; charset=utf-8")
+            except FileNotFoundError:
+                return self._send(404, "home missing", "text/plain")
+
+        # 群控台（正式路径）。/index.html 之外的别名：/group、/group/、/dash。
+        if p in ("/group", "/group/", "/group.html", "/dash", "/dash/"):
             try:
                 with open(os.path.join(STATIC_DIR, "index.html"), "rb") as f:
                     return self._send(200, f.read(), "text/html; charset=utf-8")
             except FileNotFoundError:
                 return self._send(404, "dashboard missing", "text/plain")
+
+        if p in ("/home", "/home.html"):
+            try:
+                with open(os.path.join(STATIC_DIR, "home.html"), "rb") as f:
+                    return self._send(200, f.read(), "text/html; charset=utf-8")
+            except FileNotFoundError:
+                return self._send(404, "home missing", "text/plain")
+
+        # 首页插图（产品截图）。只放行 static/img/ 下的 png/jpg/svg/webp，
+        # 并做规范化路径校验，防目录穿越。
+        if p.startswith("/img/"):
+            rel = unquote(p[len("/img/"):])
+            fname = os.path.normpath(os.path.join(STATIC_DIR, "img", rel))
+            img_dir = os.path.normpath(os.path.join(STATIC_DIR, "img"))
+            if not fname.startswith(img_dir + os.sep) or not os.path.isfile(fname):
+                return self._send(404, "Not Found", "text/plain")
+            ext = os.path.splitext(fname)[1].lower()
+            ctype = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+                     ".svg": "image/svg+xml", ".webp": "image/webp",
+                     ".gif": "image/gif"}.get(ext)
+            if not ctype:
+                return self._send(404, "Not Found", "text/plain")
+            try:
+                with open(fname, "rb") as f:
+                    return self._send(200, f.read(), ctype,
+                                      extra={"Cache-Control": "public, max-age=3600"})
+            except OSError:
+                return self._send(404, "Not Found", "text/plain")
 
         if p == "/bapiminer.svg":
             try:
@@ -2634,6 +3058,7 @@ def main():
     load_kernel_meta()
     threading.Thread(target=sweep_loop, daemon=True).start()
     threading.Thread(target=rate_fetch_loop, daemon=True).start()
+    threading.Thread(target=price_fetch_loop, daemon=True).start()
     threading.Thread(target=wallet_loop, daemon=True).start()
     threading.Thread(target=kernel_loop, daemon=True).start()
     srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)

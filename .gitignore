@@ -27,6 +27,10 @@ deploy/bundle/*.zip
 data/
 kernels/
 
+# ---- 发布签名私钥（整条升级链路的信任根，永不入库）----
+keys/
+*.key
+
 # ---- 截图与临时 ----
 shots/
 tests/shots/
