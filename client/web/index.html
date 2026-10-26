@@ -134,14 +134,22 @@
       <div class="page" id="page-fleet">
         <div class="col" style="flex:1">
           <div class="card">
+            <div class="card-hd"><span class="t">中控账号</span>
+              <span class="d" id="acctState">未登录</span></div>
+            <div id="acctBox"></div>
+          </div>
+          <div class="card">
             <div class="card-hd"><span class="t">中控连接</span>
-              <span class="d">地址已内置，一般无需修改</span></div>
+              <span class="d">地址与接入码由中控统一下发，不可修改</span></div>
             <div class="flabel">中控地址</div>
-            <input class="field mono" id="server" spellcheck="false">
+            <input class="field mono" id="server" spellcheck="false" readonly>
             <div class="flabel">接入口令</div>
-            <input class="field mono" id="token" type="password" spellcheck="false">
-            <div class="flabel">矿机名（看板显示）</div>
-            <input class="field" id="rig_name" spellcheck="false">
+            <input class="field mono" id="token" type="password" spellcheck="false" readonly>
+            <div class="flabel">机器标识（勿改）</div>
+            <input class="field" id="rig_name" spellcheck="false" readonly>
+            <div class="flabel">中控显示名称</div>
+            <input class="field" id="display_name" spellcheck="false"
+                   placeholder="中控看板里显示的名字">
             <div class="flabel">矿工名（矿池显示）</div>
             <input class="field" id="worker" spellcheck="false">
             <div style="display:flex;align-items:center;gap:14px;margin-top:16px">

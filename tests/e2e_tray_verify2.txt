@@ -1,0 +1,52 @@
+=== 托盘 BUG 端到端复验（严格版）===
+exe: C:\Users\Admin\WorkBuddy\2026-10-19-18-33-08\minrigs\client\dist\BaPiMiner.exe
+清理后窗口数: 0
+
+启动客户端...
+托盘图标就绪（第 1 次探测）
+点击 #1 -> SCREEN=3840x2160 | TARGET=3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton' | CURSOR_AFTER_MOVE=3119,1941 | PHYSICAL_CLICK=ok at 3119,1941 | INV
+         落点元素校验: OK (3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton') | 窗口数=1
+点击 #2 -> SCREEN=3840x2160 | TARGET=3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton' | CURSOR_AFTER_MOVE=3119,1941 | PHYSICAL_CLICK=ok at 3119,1941 | INV
+         落点元素校验: OK (3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton') | 窗口数=1
+点击 #3 -> SCREEN=3840x2160 | TARGET=3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton' | CURSOR_AFTER_MOVE=3119,1941 | PHYSICAL_CLICK=ok at 3119,1941 | INV
+         落点元素校验: OK (3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton') | 窗口数=2
+点击 #4 -> SCREEN=3840x2160 | TARGET=3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton' | CURSOR_AFTER_MOVE=3119,1941 | PHYSICAL_CLICK=ok at 3119,1941 | INV
+         落点元素校验: OK (3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton') | 窗口数=1
+点击 #5 -> SCREEN=3840x2160 | TARGET=3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton' | CURSOR_AFTER_MOVE=3119,1941 | PHYSICAL_CLICK=ok at 3119,1941 | INV
+         落点元素校验: OK (3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton') | 窗口数=1
+点击 #6 -> SCREEN=3840x2160 | TARGET=3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton' | CURSOR_AFTER_MOVE=3119,1941 | PHYSICAL_CLICK=ok at 3119,1941 | INV
+         落点元素校验: OK (3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton') | 窗口数=1
+点击 #7 -> SCREEN=3840x2160 | TARGET=3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton' | CURSOR_AFTER_MOVE=3119,1941 | PHYSICAL_CLICK=ok at 3119,1941 | INV
+         落点元素校验: OK (3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton') | 窗口数=2
+点击 #8 -> SCREEN=3840x2160 | TARGET=3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton' | CURSOR_AFTER_MOVE=3119,1941 | PHYSICAL_CLICK=ok at 3119,1941 | INV
+         落点元素校验: OK (3119,1941 name='扒皮矿工·矿机端 · 后台运行中' class='SystemTray.NormalButton') | 窗口数=1
+
+=== 日志中的「调出界面」记录 ===
+  [10-24 19:27:48] 调出界面：已启动 Edge app 窗口
+  [10-24 19:28:03] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:03] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:08] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:08] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:13] 调出界面：已启动 Edge app 窗口
+  [10-24 19:28:13] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:19] 已收敛矿机端 UI 窗口：保留 1 个，关闭多余的 1 个
+  [10-24 19:28:20] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:20] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:24] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:24] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:30] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:30] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:35] 调出界面：已启动 Edge app 窗口
+  [10-24 19:28:35] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:40] 已收敛矿机端 UI 窗口：保留 1 个，关闭多余的 1 个
+  [10-24 19:28:41] 调出界面：窗口正在创建中，忽略本次重复触发
+  [10-24 19:28:41] 调出界面：窗口正在创建中，忽略本次重复触发
+
+=== 结论 ===
+各次窗口数: [1, 1, 2, 1, 1, 1, 2, 1]
+每次点击落点校验: [True, True, True, True, True, True, True, True]
+「已启动 Edge app 窗口」次数: 3（客户端启动自开 1 次属正常）
+「复用已有窗口」次数: 0
+「忽略本次重复触发」次数: 14
+NameError 次数: 0
+FAIL：窗口堆叠，BUG 未修复

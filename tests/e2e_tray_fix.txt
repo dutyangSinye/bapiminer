@@ -1,0 +1,18 @@
+=== BASELINE ===
+  COUNT=0
+
+
+=== TRAY CLICK #1 ===
+  tray button NOT FOUND
+
+=== TRAY CLICK #2 ===
+  tray button NOT FOUND
+
+=== TRAY CLICK #3 ===
+  tray button NOT FOUND
+
+=== TRAY CLICK #4 ===
+  tray button NOT FOUND
+
+=== TRAY CLICK #5 ===
+  tray button NOT FOUND

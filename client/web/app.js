@@ -9,7 +9,10 @@ var APIBASE = "/" + T;
 var S = {
   page: "mine", fields: {}, toggles: {}, kernel: null,
   pool: { brands: [], brand: null, nodes: [], node: "", custom_visible: false },
-  running: false, logs: [], pollVer: 0
+  running: false, logs: [], pollVer: 0,
+  acct: { logged: false, username: "", user_id: 0, is_admin: false, msg: "" },
+  // 首次登录强制改密：非空时账号区渲染改密表单
+  acctPwdRequired: null
 };
 
 var PAGE_META = {
@@ -103,6 +106,29 @@ function apply(o) {
     case "toast": toast(o.msg, o.kind); break;
     case "tg":
       S.toggles[o.k] = o.v; renderToggles(); break;
+    case "acct":
+      S.acct = o.acct || S.acct;
+      // 登录成功 → 改密流程结束，清掉改密表单状态
+      if (S.acct && S.acct.logged) S.acctPwdRequired = null;
+      renderAcct();
+      break;
+    case "acct_pwd_required":
+      // 首次登录强制改密：切到改密表单
+      S.acctPwdRequired = { username: o.username || "" };
+      renderAcct();
+      break;
+    case "display_name":
+      // 中控远程改名（D6）：静默同步，不弹窗
+      S.fields.display_name = o.display_name || "";
+      var dn = $("display_name");
+      if (dn && document.activeElement !== dn) dn.value = S.fields.display_name;
+      break;
+    case "field_reset":
+      // 只读字段被写入尝试 → 回滚界面值
+      S.fields[o.key] = o.val || "";
+      var fr = $(o.key);
+      if (fr && document.activeElement !== fr) fr.value = o.val || "";
+      break;
     case "confirm":
       if (window.confirm(o.msg) && o.action === "kernel_action")
         post("kernel_action", { key: o.arg, force: true });
@@ -218,6 +244,8 @@ function bindStatic() {
   $("btnDash").onclick = function () { post("open_dashboard"); };
   $("btnOpenDir").onclick = function () { post("open_kernel_dir"); };
   $("btnKerPage").onclick = function () { post("open_download"); };
+  /* 账号区按钮是 renderAcct() 动态生成的，事件在那里绑定，
+     这里不能直接取元素（首屏还没渲染，取到 null 会抛错）。 */
   $("btnKillConflict").onclick = function () {
     if (window.confirm($("conflictTxt").textContent + "\n\n确认关闭这些程序？"))
       post("conflict_kill");
@@ -243,12 +271,23 @@ function bindStatic() {
   }
   bindField("wallet", "wallet");
   bindField("games", "games");
-  bindField("server", "server");
-  bindField("token", "token");
-  bindField("rig_name", "rig_name");
   bindField("worker", "worker");
   bindField("kernel_dir", "kernel_dir");
   bindField("customPool", "pool_url");
+  bindField("display_name", "display_name");
+  /* D7：中控地址 / 接入口令 / 机器标识 —— 只读，禁止写入。
+     这三项决定矿机连到哪台中控、以什么身份上报，改了就能被指向假中控或冒充他人机器。 */
+  ["server", "token", "rig_name"].forEach(function (id) {
+    var el = $(id);
+    if (!el) return;
+    el.setAttribute("readonly", "readonly");
+    el.addEventListener("beforeinput", function (e) { e.preventDefault(); });
+    el.addEventListener("keydown", function (e) {
+      if (e.key !== "Tab") e.preventDefault();
+    });
+    el.addEventListener("paste", function (e) { e.preventDefault(); });
+    el.addEventListener("drop", function (e) { e.preventDefault(); });
+  });
 
   var tgs = document.querySelectorAll(".tg[data-tg]");
   for (var i = 0; i < tgs.length; i++) {
@@ -268,6 +307,86 @@ function renderToggles() {
     tgs[i].classList.toggle("on", !!S.toggles[tgs[i].dataset.tg]);
 }
 
+/* ---------------- 中控账号区 ---------------- */
+function renderAcct() {
+  var box = $("acctBox");
+  var st = $("acctState");
+  if (!box) return;
+  var a = S.acct || {};
+  if (a.logged) {
+    st.textContent = "已登录 · " + (a.username || "") + (a.is_admin ? "（管理员）" : "");
+    box.innerHTML =
+      '<div class="kv"><span class="k">当前账号</span><span class="v mono">' +
+      esc(a.username || "") + '</span></div>' +
+      '<div class="kv"><span class="k">本机归属</span><span class="v">' +
+      (a.bound ? "已绑定到该账号" : "未绑定") + '</span></div>' +
+      '<div style="display:flex;gap:10px;margin-top:14px">' +
+      '<button class="btn ghost sm" id="btnAcctLogout">退出登录</button>' +
+      (a.bound ? '<button class="btn ghost sm" id="btnAcctUnbind">解绑本机</button>' : '') +
+      '</div>' +
+      '<div class="hint" style="margin-top:10px">' +
+      (a.bound
+        ? '本机已绑定到该账号。归属只能由矿机端登录产生：换账号请先解绑，再用新账号登录。'
+        : '本机尚未绑定。直接用目标账号登录即可自动绑定；解绑后本机回到未绑定状态。') +
+      '</div>';
+    var lo = $("btnAcctLogout");
+    if (lo) lo.onclick = function () { post("user_logout"); };
+    var ub = $("btnAcctUnbind");
+    if (ub) ub.onclick = function () {
+      if (!window.confirm("解绑后本机将不再归属当前账号，\n回到未绑定状态，可用其他账号登录绑定。\n\n确认解绑？"))
+        return;
+      post("user_unbind");
+    };
+  } else if (S.acctPwdRequired) {
+    // 首次登录强制改密：只显示改密表单，登录/注册入口暂时隐藏
+    st.textContent = "首次登录 · 请设置新密码";
+    box.innerHTML =
+      '<div class="kv"><span class="k">账号</span><span class="v mono">' +
+      esc(S.acctPwdRequired.username || "") + '</span></div>' +
+      '<div class="flabel" style="margin-top:12px">当前（初始）密码</div>' +
+      '<input class="field" id="pwdOld" type="password" autocomplete="current-password">' +
+      '<div class="flabel">新密码（至少 6 位）</div>' +
+      '<input class="field" id="pwdNew" type="password" autocomplete="new-password">' +
+      '<div class="flabel">确认新密码</div>' +
+      '<input class="field" id="pwdNew2" type="password" autocomplete="new-password">' +
+      '<div style="display:flex;gap:10px;margin-top:14px">' +
+      '<button class="btn pri sm" id="btnPwdSave">设置新密码</button>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:10px">' +
+      '这是首次登录，请设置你的新密码。设置完成后会自动登录并绑定本机。' +
+      '</div>';
+    var ps = $("btnPwdSave");
+    if (ps) ps.onclick = function () {
+      var o = $("pwdOld").value, n1 = $("pwdNew").value, n2 = $("pwdNew2").value;
+      if (!o) { toast("请输入当前密码", "warn"); return; }
+      if (!n1) { toast("请输入新密码", "warn"); return; }
+      if (n1.length < 6) { toast("新密码至少 6 位", "warn"); return; }
+      if (n1 !== n2) { toast("两次输入的新密码不一致", "warn"); return; }
+      post("user_change_password", { old_password: o, new_password: n1 });
+    };
+  } else {
+    st.textContent = "未登录";
+    box.innerHTML =
+      '<div class="flabel" style="margin-top:0">用户名</div>' +
+      '<input class="field" id="acctUser" spellcheck="false" placeholder="中控账号">' +
+      '<div class="flabel">密码</div>' +
+      '<input class="field" id="acctPwd" type="password" spellcheck="false">' +
+      '<div style="display:flex;gap:10px;margin-top:14px">' +
+      '<button class="btn pri sm" id="btnAcctLogin">登录</button>' +
+      '<button class="btn ghost sm" id="btnAcctRegister">注册</button>' +
+      '</div>' +
+      '<div class="hint" style="margin-top:10px">' +
+      '登录后本机自动绑定到该账号名下；中控看板上只会出现你名下的矿机。' +
+      '</div>';
+    $("btnAcctLogin").onclick = function () {
+      post("user_login", { username: $("acctUser").value.trim(), password: $("acctPwd").value });
+    };
+    $("btnAcctRegister").onclick = function () {
+      post("user_register", { username: $("acctUser").value.trim(), password: $("acctPwd").value });
+    };
+  }
+}
+
 function renderFields() {
   for (var k in S.fields) {
     var el = $(k === "pool_url" ? "customPool" : k);
@@ -279,11 +398,16 @@ function renderFields() {
 function applyBoot(d) {
   S.pollVer = d.poll_base || 0;
   S.fields = d.fields; S.toggles = d.toggles;
+  if (d.acct) {
+    S.acct = d.acct;
+    if (d.acct.pwd_required) S.acctPwdRequired = d.acct.pwd_required;
+    else if (d.acct.logged) S.acctPwdRequired = null;
+  }
   $("verTag").textContent = "v" + d.version + " · PRL pearlhash";
   $("presetGames").innerHTML = (d.preset_games || []).map(function (n) {
     return '<span class="pchip">' + esc(n) + "</span>";
   }).join("");
-  renderFields(); renderToggles();
+  renderFields(); renderToggles(); renderAcct();
   apply({ t: "runbtn", on: d.running });
   if (d.pill) apply({ t: "pill", text: d.pill.text, kind: d.pill.kind });
   // 实时指标（算力/份额/温度/日收益/运行时长）：快照直接带上，

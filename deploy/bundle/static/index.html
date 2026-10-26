@@ -3,169 +3,614 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>挖矿群控 · 中控台</title>
+<title>扒皮矿工 · 中控台</title>
+<link rel="icon" type="image/svg+xml" href="/bapiminer.svg">
 <style>
 :root{
-  --bg:#f4f6fa;--card:#fff;--line:#e6ebf2;--line-soft:#f0f3f8;
-  --text:#1f2733;--text-2:#4a5568;--muted:#8a95a5;
-  --brand:#3b82f6;--brand-soft:#eaf2ff;
-  --up:#e5484d;--down:#17a673;--gold:#f0a020;--purple:#7c3aed;
-  --shadow:0 1px 2px rgba(20,32,52,.04),0 8px 24px rgba(20,32,52,.06);
-  --radius:14px;
+  --bg:#f5f7fb;--card:#ffffff;--card-2:#fbfcfe;
+  --line:#e7ecf4;--line-soft:#eff3f9;
+  --text:#0f1729;--text-2:#46536b;--muted:#8593a8;--faint:#aab6c8;
+  --brand:#10b981;--brand-ink:#0b7d5b;--brand-soft:#e8f9f1;
+  --blue:#3b82f6;--blue-soft:#eef4ff;
+  --up:#ef4444;--up-soft:#fef1f1;--down:#10b981;
+  --gold:#f59e0b;--gold-soft:#fff8e8;--purple:#7c5cf0;--purple-soft:#f3f0ff;
+  --shadow-sm:0 1px 2px rgba(15,23,41,.05),0 1px 3px rgba(15,23,41,.03);
+  --shadow:0 1px 2px rgba(15,23,41,.04),0 10px 28px -12px rgba(15,23,41,.14);
+  --shadow-lg:0 2px 6px rgba(15,23,41,.05),0 18px 44px -16px rgba(15,23,41,.22);
+  --radius:16px;--radius-sm:11px;
+  --mono:"SF Mono",ui-monospace,"JetBrains Mono",Consolas,monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-html,body{background:var(--bg);color:var(--text);
-  font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
-  -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.5}
-.wrap{max-width:1320px;margin:0 auto;padding:0 20px 64px}
-header{position:sticky;top:0;z-index:50;background:rgba(244,246,250,.86);
-  backdrop-filter:saturate(180%) blur(12px);border-bottom:1px solid var(--line)}
-.hd{max-width:1320px;margin:0 auto;padding:14px 20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
-.logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px}
-.logo .dot{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,#f59e0b,#ef4444);
-  display:grid;place-items:center;color:#fff;font-size:14px;box-shadow:0 2px 8px rgba(239,68,68,.3)}
+html{scroll-behavior:smooth}
+body{background:
+    radial-gradient(1100px 460px at 12% -8%,rgba(16,185,129,.07),transparent 62%),
+    radial-gradient(900px 420px at 92% -12%,rgba(59,130,246,.07),transparent 60%),
+    var(--bg);
+  color:var(--text);font-family:system-ui,-apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  -webkit-font-smoothing:antialiased;font-size:14px;line-height:1.5;
+  font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1,"ss01" 1}
+::selection{background:rgba(16,185,129,.18)}
+.wrap{max-width:1320px;margin:0 auto;padding:0 22px 72px}
+
+/* ---------- 顶栏 ---------- */
+header{position:sticky;top:0;z-index:60;
+  background:rgba(250,251,253,.78);backdrop-filter:saturate(180%) blur(14px);
+  border-bottom:1px solid rgba(231,236,244,.9);
+  box-shadow:0 1px 0 rgba(255,255,255,.7) inset}
+.hd{max-width:1320px;margin:0 auto;padding:13px 22px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.logo{display:flex;align-items:center;gap:11px;font-weight:720;font-size:16.5px;letter-spacing:-.2px}
+.logo .mark{width:34px;height:34px;flex:none;filter:drop-shadow(0 4px 10px rgba(16,185,129,.35))}
+.logo .dot{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;color:#fff;font-size:15px;
+  background:linear-gradient(145deg,#12c98a,#0a8f68);
+  box-shadow:0 4px 12px -2px rgba(16,185,129,.45),0 1px 0 rgba(255,255,255,.45) inset}
+.logo em{font-style:normal;color:var(--faint);font-weight:500;font-size:11px;
+  border:1px solid var(--line);border-radius:6px;padding:1px 6px;margin-left:2px;letter-spacing:.02em}
 .hd .sub{color:var(--muted);font-size:12px;font-weight:400;border-left:1px solid var(--line);padding-left:14px}
 .grow{flex:1}
-.status{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);
-  background:var(--card);border:1px solid var(--line);border-radius:999px;padding:6px 12px}
-.live{width:7px;height:7px;border-radius:50%;background:var(--down);box-shadow:0 0 0 3px rgba(23,166,115,.14)}
-.live.err{background:var(--up);box-shadow:0 0 0 3px rgba(229,72,77,.14)}
-@keyframes pulse{50%{opacity:.35}}
-.live.busy{background:var(--gold);animation:pulse 1s infinite}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);font-weight:500;
+  background:var(--card);border:1px solid var(--line);border-radius:999px;padding:7px 13px;box-shadow:var(--shadow-sm)}
+.live{width:7px;height:7px;border-radius:50%;background:var(--down);box-shadow:0 0 0 3px rgba(16,185,129,.16)}
+.live.err{background:var(--up);box-shadow:0 0 0 3px rgba(239,68,68,.16)}
+@keyframes pulse{50%{opacity:.3}}
+.live.busy{background:var(--gold);box-shadow:0 0 0 3px rgba(245,158,11,.16);animation:pulse 1.1s infinite}
+
+/* ---------- 按钮 ---------- */
 .btn{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:10px;
-  padding:8px 14px;font-size:13px;font-weight:500;cursor:pointer;transition:.15s;font-family:inherit}
-.btn:hover{border-color:#c9d5e8;background:#fbfcfe}
-.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff;box-shadow:0 2px 8px rgba(59,130,246,.25)}
-.btn.primary:hover{background:#2f74e6}
-.btn.mini{padding:5px 10px;font-size:12px;border-radius:8px}
-.btn.danger{color:var(--up);border-color:#f3c6c6}
-.btn.danger:hover{background:#fff5f5;border-color:#e8a5a5}
+  padding:8px 14px;font-size:13px;font-weight:550;cursor:pointer;transition:all .16s ease;
+  font-family:inherit;box-shadow:var(--shadow-sm);display:inline-flex;align-items:center;gap:6px}
+.btn:hover{border-color:#cfdaeb;background:#fdfefe;transform:translateY(-1px);
+  box-shadow:0 2px 4px rgba(15,23,41,.05),0 8px 20px -10px rgba(15,23,41,.2)}
+.btn:active{transform:translateY(0) scale(.985);box-shadow:none}
+.btn.primary{background:linear-gradient(180deg,#12986f,#0d8a63);border-color:#0d8a63;color:#fff;
+  box-shadow:0 2px 6px rgba(16,185,129,.3),0 1px 0 rgba(255,255,255,.22) inset}
+.btn.primary:hover{background:linear-gradient(180deg,#14a87b,#0e936a)}
+.btn.mini{padding:6px 11px;font-size:12px;border-radius:9px;font-weight:500}
+.btn.danger{color:#d43f3f;border-color:#f4cfcf;background:#fffafa}
+.btn.danger:hover{background:#fff3f3;border-color:#eab6b6;color:#c02e2e}
+.btn.ghost{background:transparent;box-shadow:none;border-color:transparent;color:var(--muted)}
+.btn.ghost:hover{background:var(--line-soft);color:var(--text)}
 
-.hero{padding:24px 0 4px}
-.hero h1{font-size:23px;font-weight:750;letter-spacing:-.4px}
-.hero p{color:var(--muted);font-size:12.5px;margin-top:6px}
+/* ---------- 标题区 ---------- */
+.hero{padding:26px 0 2px;display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.hero h1{font-size:24px;font-weight:760;letter-spacing:-.5px}
+.hero .hint{color:var(--muted);font-size:12.5px;margin-top:7px}
+.hero .chips{display:flex;gap:6px;margin-left:auto;flex-wrap:wrap}
+.chip{font-size:11.5px;color:var(--text-2);background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:5px 11px;box-shadow:var(--shadow-sm)}
+.chip b{color:var(--text);font-weight:650}
 
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin:18px 0 14px}
-.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-  padding:15px 18px;box-shadow:var(--shadow);position:relative;overflow:hidden}
-.kpi::after{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--brand);opacity:.85}
-.kpi.g::after{background:var(--gold)}.kpi.v::after{background:var(--purple)}.kpi.d::after{background:var(--down)}
-.kpi .k{font-size:11.5px;color:var(--muted);font-weight:500}
-.kpi .v{font-size:21px;font-weight:720;margin-top:6px;letter-spacing:-.4px;white-space:nowrap}
-.kpi .v small{font-size:12px;font-weight:500;color:var(--muted);margin-left:4px}
-.kpi .m{font-size:12px;color:var(--text-2);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* ---------- KPI ---------- */
+.kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:14px;margin:16px 0 12px}
+.kpis.kb{grid-template-columns:repeat(2,1fr)}
+.kpi{background:linear-gradient(180deg,#fff,#fdfefe);border:1px solid var(--line);border-radius:var(--radius);
+  padding:16px 18px 14px;box-shadow:var(--shadow);position:relative;overflow:hidden;
+  transition:transform .18s ease,box-shadow .18s ease}
+.kpi:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg)}
+.kpi::before{content:"";position:absolute;inset:0 0 auto 0;height:2px;
+  background:linear-gradient(90deg,rgba(16,185,129,.85),rgba(16,185,129,0));opacity:.8}
+.kpi.g::before{background:linear-gradient(90deg,rgba(245,158,11,.85),rgba(245,158,11,0))}
+.kpi.v::before{background:linear-gradient(90deg,rgba(124,92,240,.85),rgba(124,92,240,0))}
+.kpi.d::before{background:linear-gradient(90deg,rgba(59,130,246,.75),rgba(59,130,246,0))}
+.kpi .k{font-size:11.5px;color:var(--muted);font-weight:600;letter-spacing:.03em;
+  display:flex;align-items:center;gap:7px}
+.kpi .k .ic{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-size:11.5px;
+  background:var(--brand-soft);color:var(--brand-ink);flex:none}
+.kpi.g .k .ic{background:var(--gold-soft);color:#9a6407}
+.kpi.v .k .ic{background:var(--purple-soft);color:#5f3fd6}
+.kpi.d .k .ic{background:var(--blue-soft);color:#2563bf}
+.kpi .v{font-size:25px;font-weight:760;margin-top:9px;letter-spacing:-.7px;white-space:nowrap;line-height:1.15}
+.kpi .v small{font-size:12px;font-weight:550;color:var(--muted);margin-left:5px;letter-spacing:0}
+.kpi .m{font-size:11.5px;color:var(--text-2);margin-top:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
+/* ---------- 卡片 / 面板 ---------- */
+.kpis,.alerts,.toolbar{animation:rise .32s ease both}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .alerts{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-  box-shadow:var(--shadow);padding:14px 18px;margin-bottom:14px}
-.alerts h3{font-size:13.5px;font-weight:650;margin-bottom:8px;display:flex;gap:8px;align-items:center}
-.alert-row{display:flex;align-items:center;gap:10px;padding:7px 0;border-top:1px solid var(--line-soft);
-  font-size:12.5px;color:var(--text-2);flex-wrap:wrap}
-.alert-row:first-of-type{border-top:none}
-.sev{font-size:10px;font-weight:700;padding:1px 7px;border-radius:5px;letter-spacing:.3px}
-.sev.crit{background:#fdeaea;color:#b91c1c}.sev.warn{background:#fff4e6;color:#b26a00}.sev.info{background:#eef7ff;color:#1d6fd0}
-.alert-row .tm{color:var(--muted);font-size:11.5px}
-.alert-row .sp{flex:1}
-.alert-row button{border:1px solid var(--line);background:#fff;border-radius:7px;padding:2px 9px;
-  font-size:11.5px;cursor:pointer;color:var(--muted);font-family:inherit}
-.alert-row button:hover{color:var(--text);border-color:#c9d5e8}
+  box-shadow:var(--shadow);padding:15px 18px 13px;margin-bottom:13px}
+.alerts h3{font-size:13px;font-weight:680;margin-bottom:9px;display:flex;gap:9px;align-items:center;
+  letter-spacing:.01em;color:var(--text);cursor:pointer;user-select:none}
+.alerts h3 .tag{margin-left:2px}
+.alerts h3 .fold{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--text-2);
+  border:1px solid var(--line);border-radius:8px;padding:2px 9px;background:rgba(255,255,255,.7)}
+.alerts h3 .fold:hover{color:var(--text);border-color:#9fd8c4;background:#fff}
+.alerts .al-body{max-height:300px;overflow:auto;overscroll-behavior:contain}
+.alerts.collapsed .al-body{display:none}
+.alerts.collapsed h3{margin-bottom:0}
+/* 告警卡固定在最底部，独立卡片样式 */
+#alertBox{border-left:3px solid #f0b03c}
+#alertBox.sev-high{border-left-color:#e3555b}
+#alertBox .alert-row:first-child{border-top:none}
 
-.rigs{display:grid;grid-template-columns:repeat(auto-fill,minmax(390px,1fr));gap:14px}
-.rig{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
-  box-shadow:var(--shadow);padding:16px 18px;position:relative}
-.rig.offline{opacity:.62}
-.rig-hd{display:flex;align-items:center;gap:9px;margin-bottom:10px}
-.rig-hd .nm{font-weight:700;font-size:15px;letter-spacing:-.2px}
-.rig-hd .dot{width:9px;height:9px;border-radius:50%}
-.rig-hd .dot.on{background:var(--down);box-shadow:0 0 0 3px rgba(23,166,115,.15)}
-.rig-hd .dot.off{background:var(--up);box-shadow:0 0 0 3px rgba(229,72,77,.15)}
-.tag{font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;
-  background:#f1f4f9;color:#8a95a5;border:1px solid #e8edf4}
-.tag.miner{background:#f2f0ff;color:#6d4bd6;border-color:#ddd6fb}
-.tag.miner.dead{background:#fdeaea;color:#b91c1c;border-color:#f8d6d6}
-.rig-hd .sp{flex:1}
-.big{display:flex;align-items:baseline;gap:6px;margin:2px 0 8px}
-.big b{font-size:26px;font-weight:760;letter-spacing:-.6px}
-.big span{color:var(--muted);font-size:12px}
-.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px}
-.metric{background:#f8fafc;border:1px solid var(--line-soft);border-radius:9px;padding:7px 9px}
-.metric .k{font-size:10px;color:var(--muted)}
-.metric .v{font-size:13.5px;font-weight:650;margin-top:1px;white-space:nowrap}
-.spark{width:100%;height:44px;display:block}
-.gpu-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
-.gpu-chip{font-size:11px;color:var(--text-2);background:#f8fafc;border:1px solid var(--line-soft);
-  border-radius:7px;padding:3px 8px}
-.gpu-chip b{color:var(--text)}
-.gpu-chip.hot b{color:var(--up)}
-.rig-ft{display:flex;align-items:center;gap:8px;margin-top:11px;padding-top:10px;border-top:1px solid var(--line-soft)}
-.rig-ft .info{font-size:11.5px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.rig-ft .income{font-size:12.5px;font-weight:650;color:var(--down)}
-.errbar{background:#fff5f5;border:1px solid #ffd9d9;color:#b91c1c;border-radius:10px;
-  padding:9px 14px;font-size:12.5px;margin:14px 0;display:none}
-.empty{padding:48px 20px;text-align:center;color:var(--muted);font-size:13px}
-.card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);
-  padding:26px;max-width:420px;margin:60px auto}
-.card h2{font-size:16px;margin-bottom:6px}
-.card p{color:var(--muted);font-size:12.5px;margin-bottom:14px}
-.card input{width:100%;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:13px;
-  outline:none;font-family:inherit;margin-bottom:12px}
-.card input:focus{border-color:#b9d2fb;box-shadow:0 0 0 3px rgba(59,130,246,.1)}
-footer{margin-top:26px;color:var(--muted);font-size:11.5px;line-height:1.9;text-align:center}
-@media(max-width:1080px){.kpis{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:720px){.kpis{grid-template-columns:1fr 1fr}.rigs{grid-template-columns:1fr}}
+/* 客户端安装包下载 */
+.dl-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:12px}
+.dl-card{display:flex;gap:13px;padding:14px 15px;border:1px solid var(--line);border-radius:14px;
+  background:linear-gradient(180deg,#fff,var(--card-2));box-shadow:var(--shadow-sm);transition:.16s}
+.dl-card:hover{border-color:#cdeedd;box-shadow:0 2px 4px rgba(16,185,129,.08),0 10px 24px -14px rgba(16,185,129,.35)}
+.dl-card.off{opacity:.72;border-style:dashed}
+.dl-ic{width:44px;height:44px;flex:none;border-radius:12px;display:grid;place-items:center;font-size:21px;
+  background:var(--brand-soft);border:1px solid #cdeedd}
+.dl-main{min-width:0;flex:1}
+.dl-t{font-size:13.5px;font-weight:700;letter-spacing:-.1px}
+.dl-p{font-size:11.5px;color:var(--muted);margin-top:1px;font-family:var(--mono)}
+.dl-d{font-size:12px;color:var(--text-2);margin-top:6px;line-height:1.55}
+.dl-d code{font-family:var(--mono);font-size:11px;background:var(--line-soft);padding:1px 5px;border-radius:5px}
+.dl-meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:11px;color:var(--faint);
+  font-family:var(--mono)}
+.dl-meta .sha{cursor:help;border-bottom:1px dotted var(--faint)}
+.dl-act{display:flex;gap:7px;margin-top:10px}
+.dl-act .btn{text-decoration:none;display:inline-flex;align-items:center;gap:5px}
+
+/* 告警行 */
+.alert-row{display:flex;align-items:center;gap:10px;padding:9px 2px;border-top:1px solid var(--line-soft);
+  font-size:12.5px;color:var(--text-2);flex-wrap:wrap;transition:background .15s}
+.alert-row:hover{background:var(--card-2)}
+.alert-row:first-of-type{border-top:none}
+.alert-row b{color:var(--text);font-weight:650}
+.sev{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;letter-spacing:.04em;flex:none}
+.sev.crit{background:var(--up-soft);color:#c02e2e;box-shadow:0 0 0 1px rgba(239,68,68,.14) inset}
+.sev.warn{background:var(--gold-soft);color:#9a6407;box-shadow:0 0 0 1px rgba(245,158,11,.16) inset}
+.sev.info{background:var(--blue-soft);color:#2563bf;box-shadow:0 0 0 1px rgba(59,130,246,.14) inset}
+.alert-row .tm{color:var(--faint);font-size:11.5px;font-variant-numeric:tabular-nums}
+.alert-row .sp{flex:1}
+.alert-row button{border:1px solid var(--line);background:#fff;border-radius:8px;padding:3px 10px;
+  font-size:11.5px;cursor:pointer;color:var(--muted);font-family:inherit;transition:.15s}
+.alert-row button:hover{color:var(--text);border-color:#cfdaeb;box-shadow:var(--shadow-sm)}
+
+/* ---------- 矿机卡片 ---------- */
+.rigs{display:grid;grid-template-columns:repeat(auto-fill,minmax(392px,1fr));gap:14px}
+.rig{background:linear-gradient(180deg,#fff,#fdfefe);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:17px 19px 15px;position:relative;
+  transition:transform .18s ease,box-shadow .18s ease,border-color .18s ease}
+.rig:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);border-color:#dde5f1}
+/* hover 的 transform 会创建层叠上下文，展开菜单的卡片需抬升，否则菜单被相邻卡片压住 */
+.rig:hover{z-index:20}
+.rig.menu-open{z-index:60}
+.rig.offline{opacity:.66;filter:saturate(.75)}
+.rig.offline:hover{transform:none;box-shadow:var(--shadow)}
+/* 卡片头 · 主身份行：状态点 + 矿机名 + 高频操作。
+   矿机名独占可伸缩空间，操作组固定宽 —— 保证名字不因控件数量漂移而被截断。 */
+.rig-hd{display:flex;align-items:center;gap:8px;margin-bottom:5px;flex-wrap:nowrap}
+.rig-hd .nm{font-weight:700;font-size:15px;letter-spacing:-.2px;flex:1 1 auto;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rig-hd .dot{width:8px;height:8px;border-radius:50%;flex:none}
+.rig-hd .dot.on{background:var(--down);box-shadow:0 0 0 3px rgba(16,185,129,.16)}
+.rig-hd .dot.off{background:var(--up);box-shadow:0 0 0 3px rgba(239,68,68,.16)}
+.rig-acts{display:flex;align-items:center;gap:6px;flex:none}
+.rig-acts .btn.mini{padding:5px 9px}
+.rig-acts .btn.ico{padding:5px 8px;font-size:14px;line-height:1;font-weight:700;color:var(--muted)}
+.rig-acts .btn.ico:hover{color:var(--text)}
+/* 「更多」菜单：次要操作唯一入口。绝对定位于卡片内，z-index 高于相邻卡片。
+   宽度自适应内容（min 236px，max 不超过卡片宽），靠右对齐避免超出卡片右边界。 */
+.rig-menu{position:absolute;right:14px;top:42px;z-index:40;width:max-content;max-width:calc(100% - 28px);
+  min-width:236px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-lg);padding:5px;animation:menuIn .13s ease both}
+.rig-menu[hidden]{display:none}
+@keyframes menuIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.rig-menu-item{display:grid;grid-template-columns:16px 1fr;grid-template-areas:"ic t" ". s";
+  align-items:center;column-gap:8px;width:100%;text-align:left;
+  background:none;border:0;border-radius:8px;padding:8px 10px;cursor:pointer;
+  font-family:inherit;font-size:13px;color:var(--text);transition:background .13s}
+.rig-menu-item:hover{background:var(--card-2)}
+.rig-menu-item:focus-visible{outline:2px solid var(--brand);outline-offset:-2px}
+.rig-menu-item b{grid-area:t;font-weight:600;line-height:1.3}
+.rig-menu-item span{grid-area:s;font-size:11px;color:var(--muted);font-weight:400;line-height:1.4}
+.rig-menu-item> :first-child{grid-area:ic}
+.rig-menu-item i{grid-area:ic;font-style:normal;font-size:13px;line-height:1;
+  text-align:center;color:var(--muted)}
+.rig-menu-item.danger i{color:#d43f3f}
+.rig-menu-item.danger b{color:#d43f3f}
+.rig-menu-item.danger:hover{background:var(--up-soft)}
+/* 卡片头 · 元信息行：归属 / 机器标识 / 冲突告警。
+   与主身份行分层，次要信息不再与矿机名争抢同一行的宽度。
+   个人视角看不到归属徽标，若整行为空则整行折叠，不留空白。 */
+.rig-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:18px;margin-bottom:9px}
+.rig-meta:empty{display:none}
+.rig-meta .tag{line-height:15px}
+/* 徽标行（标题第二行）：min-height 兜底两行高度，保证各卡片标题区高度一致 */
+.rig-tags{display:flex;flex-wrap:wrap;align-content:flex-start;gap:6px;
+  min-height:50px;margin-bottom:12px}
+.rig-tags .tag{line-height:16px}
+.tag{font-size:10.5px;padding:2px 7px;border-radius:6px;font-weight:600;letter-spacing:.01em;
+  background:#f4f7fb;color:#6b7a90;border:1px solid #e9eef6;white-space:nowrap}
+.tag.miner{background:var(--purple-soft);color:#5f3fd6;border-color:#e4dcff}
+.tag.miner.dead{background:var(--up-soft);color:#c02e2e;border-color:#f8d9d9}
+.tag.gm{background:var(--gold-soft);color:#9a6407;border-color:#fbe3b2}
+/* 归属徽标：形态上与矿机名（粗体黑字）明确区分 —— 圆形首字母头像 + 常规字重用户名。
+   头像是「人/账号」的形态信号，比人字 emoji 更紧凑，也避免 emoji 的跨平台字形漂移。 */
+.tag.own{display:inline-flex;align-items:center;gap:5px;padding:1px 8px 1px 2px;line-height:16px}
+.tag.own .av{width:15px;height:15px;border-radius:50%;flex:none;display:grid;place-items:center;
+  font-size:9px;font-weight:700;color:#fff;background:var(--brand);letter-spacing:0}
+.tag.own .un{font-weight:600;max-width:110px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* 未归属 = 空槽待填，用虚线描边表达「未占用」；中性色而非告警色，避免满屏未绑定时变成噪音墙。
+   语义不靠颜色单独承载：虚线/实线 + 文案 + 位置三重线索。 */
+.tag.own.free{background:transparent;color:var(--muted);border-style:dashed;border-color:#b8c4d6;
+  padding:1px 8px;font-weight:600}
+/* 机器标识：技术性字段（非状态），用等宽字体 + 更弱的灰，区别于状态徽标 */
+.tag.mid{font-family:var(--mono);font-size:10px;letter-spacing:0;color:var(--faint);
+  background:transparent;border-color:var(--line-soft);padding:1px 6px}
+.btn.mini.gm-on{border-color:#fbe3b2;color:#9a6407;background:#fffcf3}
+.btn.mini.gm-on:hover{background:#fff8e6}
+.big{display:flex;align-items:baseline;gap:7px;margin:0 0 10px;flex-wrap:nowrap}
+.big b{font-size:27px;font-weight:780;letter-spacing:-.9px;line-height:1.1;flex:none}
+.big span{color:var(--muted);font-size:12px;min-width:0;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:10px}
+.metric{background:var(--card-2);border:1px solid var(--line-soft);border-radius:10px;padding:8px 10px}
+.metric .k{font-size:10px;color:var(--muted);font-weight:600;letter-spacing:.02em}
+.metric .v{font-size:13.5px;font-weight:680;margin-top:2px;white-space:nowrap;letter-spacing:-.2px}
+.spark{width:100%;height:46px;display:block;border-radius:8px}
+.gpu-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.gpu-chip{font-size:11px;color:var(--text-2);background:var(--card-2);border:1px solid var(--line-soft);
+  border-radius:8px;padding:4px 9px;transition:.15s}
+.gpu-chip b{color:var(--text);font-weight:650}
+.gpu-chip.hot{border-color:#f8d9d9;background:var(--up-soft)}
+.gpu-chip.hot b{color:#c02e2e}
+.rig-ft{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:11px;border-top:1px solid var(--line-soft)}
+.rig-ft .info{font-size:11.5px;color:var(--muted);flex:1;min-width:0;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.rig-ft .income{font-size:12.5px;font-weight:700;color:var(--brand-ink);background:var(--brand-soft);
+  padding:2px 9px;border-radius:999px;white-space:nowrap;flex:none}
+/* 摘要行：折叠态常驻（算力 / 收益 / 展开按钮） */
+.rig-sum{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.rig-sum .big{flex:1 1 auto;min-width:0;margin:0}
+.rig-sum .big b{font-size:24px}
+.rig-sum .sum-tags{display:flex;gap:6px;flex-wrap:wrap;flex:none}
+/* 详情区：管理员默认收起，个人默认展开 */
+.rig-detail{margin-top:11px;padding-top:0}
+.rig-detail[hidden]{display:none}
+.rig-fold{flex:none;align-self:center}
+.rig.mini .rig-tags{min-height:0;margin-bottom:10px}
+.rig.mini .metrics{margin-bottom:10px}
+.rig.mini .rig-detail{margin-top:10px;padding-top:10px;border-top:1px solid var(--line-soft)}
+.rig.mini .rig-sum .big b{font-size:21px}
+.rig.mini .spark{height:38px}
+
+/* ---------- 矿池/内核配置弹窗 ---------- */
+.mask{position:fixed;inset:0;background:rgba(30,35,45,.45);backdrop-filter:blur(2px);
+  display:flex;align-items:center;justify-content:center;z-index:60;padding:20px}
+.cfg-panel{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow-lg);width:640px;max-width:96vw;max-height:88vh;
+  display:flex;flex-direction:column;overflow:hidden}
+.cfg-hd{display:flex;align-items:center;gap:10px;padding:14px 18px;
+  border-bottom:1px solid var(--line-soft);font-size:15px;font-weight:700}
+.cfg-hd .cfg-sub{font-size:12px;font-weight:500;color:var(--muted)}
+.cfg-hd .btn{margin-left:auto}
+.cfg-body{padding:16px 18px;overflow-y:auto}
+.cfg-cur{font-size:12.5px;color:var(--text-2);background:var(--card-2);
+  border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 12px;margin-bottom:14px}
+.cfg-cur b{color:var(--text)}
+.cfg-sec{border:1px solid var(--line);border-radius:var(--radius-sm);padding:13px 14px;margin-bottom:13px}
+.cfg-t{font-size:13px;font-weight:700;margin-bottom:10px}
+.cfg-row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px}
+.cfg-row:last-child{margin-bottom:0}
+.cfg-row select,.cfg-row input{flex:1;min-width:190px;padding:7px 10px;border:1px solid var(--line);
+  border-radius:9px;font-size:12.5px;background:#fff;color:var(--text)}
+.cfg-note{font-size:11.5px;color:var(--muted);margin-top:8px;line-height:1.6}
+.cfg-kerns{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.cfg-kern{border:1px solid var(--line);border-radius:10px;padding:10px 11px;cursor:pointer;
+  transition:border-color .15s,background .15s}
+.cfg-kern:hover{border-color:#d8c9a8;background:#fffdf7}
+.cfg-kern.on{border-color:var(--brand);background:var(--brand-soft)}
+.cfg-kern b{display:block;font-size:13px;margin-bottom:3px}
+.cfg-kern span{font-size:11px;color:var(--muted);line-height:1.55;display:block}
+.cfg-ft{display:flex;align-items:center;gap:12px;padding:13px 18px;border-top:1px solid var(--line-soft)}
+.cfg-ft .cfg-hint{font-size:11.5px;color:var(--muted);flex:1;line-height:1.55}
+@media (max-width:640px){.cfg-kerns{grid-template-columns:1fr}}
+
+/* ---------- 工具条（吸附） ---------- */
+.toolbar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;background:rgba(255,255,255,.9);
+  backdrop-filter:saturate(180%) blur(12px);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:10px 12px;margin:0 0 13px;position:sticky;top:60px;z-index:45}
+.toolbar input,.toolbar select{border:1px solid var(--line);border-radius:9px;padding:7px 11px;
+  font-size:12.5px;font-family:inherit;background:var(--card-2);outline:none;color:var(--text);
+  transition:border-color .15s,box-shadow .15s,background .15s}
+.toolbar input{min-width:170px;flex:none}
+.toolbar input:focus,.toolbar select:focus{border-color:#9fd8c4;background:#fff;
+  box-shadow:0 0 0 3px rgba(16,185,129,.12)}
+.toolbar .chk{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--text-2);
+  cursor:pointer;user-select:none;padding:0 2px;flex:none;white-space:nowrap}
+.toolbar .chk input{flex:none;min-width:0}
+.toolbar .chk input{accent-color:var(--brand)}
+.toolbar .sp{flex:1}
+/* 按钱包分组：组头 = 细线贯穿整行 + 简洁信息行，组间泾渭分明 */
+.wgroup-hd{grid-column:1/-1;display:flex;align-items:center;gap:8px 14px;flex-wrap:wrap;
+  margin:26px 0 2px;padding:11px 2px 0;border-top:1px solid #d8e0ea;
+  font-size:12.5px;color:var(--text-2)}
+.wgroup-hd:first-child{margin-top:2px}
+.wgroup-hd .wm{font-weight:600;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-size:13px;letter-spacing:.2px;color:var(--text);user-select:all}
+.wgroup-hd .dot{width:7px;height:7px;border-radius:50%;flex:none}
+.wgroup-hd .dot.on{background:var(--down);box-shadow:0 0 0 3px rgba(16,185,129,.16)}
+.wgroup-hd .dot.mid{background:#b26a00;box-shadow:0 0 0 3px rgba(178,106,0,.14)}
+.wgroup-hd .dot.off{background:var(--up);box-shadow:0 0 0 3px rgba(239,68,68,.16)}
+.wgroup-hd .tag{background:none;border:none;padding:0;font-size:12.5px;color:var(--text-2)}
+.wgroup-hd .tag.wb{color:#2563eb}   /* 待付余额：蓝色文字，不再用底色块 */
+.wgroup-hd .sep2{width:1px;height:12px;background:#d8e0ea;flex:none}
+.toolbar .sep{width:1px;height:22px;background:var(--line);margin:0 2px}
+
+/* ---------- 按天 / 内核行 ---------- */
+.dayrow{border-top:1px solid var(--line-soft);padding:10px 2px}
+.dayrow:first-child{border-top:none}
+.dayrow:hover{background:var(--card-2)}
+.dayrow .dhd{display:flex;align-items:center;gap:10px;font-size:13px;font-weight:680}
+.dayrow .dhd .inc{color:var(--brand-ink);font-weight:750;background:var(--brand-soft);
+  padding:1px 9px;border-radius:999px;font-size:12px}
+.dayrow .rigs-mini{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+.dayrow .rchip{font-size:11px;background:var(--card-2);border:1px solid var(--line-soft);
+  border-radius:8px;padding:4px 9px;color:var(--text-2)}
+.dayrow .rchip b{color:var(--text);font-weight:650}
+.kern-row{display:flex;align-items:center;gap:10px;border-top:1px solid var(--line-soft);
+  padding:10px 2px;font-size:13px;flex-wrap:wrap;transition:background .15s}
+.kern-row:hover{background:var(--card-2)}
+.kern-row:first-child{border-top:none}
+.kern-row .ver{font-weight:700}
+.kern-row .mut{color:var(--muted);font-size:11.5px;font-family:var(--mono)}
+.sel-cb{width:15px;height:15px;cursor:pointer;flex:none;margin-right:1px;accent-color:var(--brand)}
+
+/* ---------- 登录卡 / 杂项 ---------- */
+.errbar{background:var(--up-soft);border:1px solid #f8d9d9;color:#b02b2b;border-radius:12px;
+  padding:10px 15px;font-size:12.5px;margin:14px 0;display:none}
+.empty{padding:56px 20px;text-align:center;color:var(--muted);font-size:13px;
+  background:var(--card);border:1px dashed #dde5f1;border-radius:var(--radius)}
+.card{background:linear-gradient(180deg,#fff,#fdfefe);border:1px solid var(--line);border-radius:20px;
+  box-shadow:var(--shadow-lg);padding:30px;max-width:430px;margin:72px auto}
+.card h2{font-size:17px;letter-spacing:-.2px;margin-bottom:7px}
+.card p{color:var(--muted);font-size:12.5px;margin-bottom:16px;line-height:1.65}
+.card input{width:100%;border:1px solid var(--line);border-radius:11px;padding:11px 13px;font-size:13px;
+  outline:none;font-family:inherit;margin-bottom:12px;background:var(--card-2);transition:.15s}
+.card input:focus{border-color:#9fd8c4;background:#fff;box-shadow:0 0 0 3px rgba(16,185,129,.12)}
+/* 登录/注册：登录模式切换 */
+.tabs{display:flex;gap:8px;margin-bottom:14px}
+.tabs .btn.on{background:var(--brand-soft,#e8f7ee);border-color:#9fd8c4;color:#0d8a63;font-weight:600}
+#authMsg{color:var(--muted);font-size:12px;min-height:16px}
+#authMsg:empty{display:none}
+.card details summary{user-select:none}
+/* 用户管理表格 */
+.utab{width:100%;border-collapse:collapse;font-size:12.5px}
+.utab th,.utab td{text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+.utab th{color:var(--muted);font-weight:600;font-size:11.5px}
+.utab tr:last-child td{border-bottom:none}
+footer{margin-top:30px;color:var(--faint);font-size:11.5px;line-height:1.95;text-align:center}
+footer b{color:var(--muted);font-weight:600}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#d8e0ec;border-radius:8px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#c3cee0;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+@media(max-width:1080px){.kpis{grid-template-columns:repeat(2,1fr)}
+  .toolbar{position:static}}
+@media(max-width:720px){
+  .kpis{grid-template-columns:1fr 1fr;gap:10px}
+  .kpi{padding:12px 13px}.kpi .v{font-size:20px}.kpi .v small{margin-left:3px}
+  /* 副文案两行截断：窄卡里单行 ellipsis 会把「昨日 7.9853 · 近7日」等关键信息砍没 */
+  .kpi .m{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;
+    -webkit-box-orient:vertical;overflow:hidden;line-height:1.35}
+  .hd{padding:10px 14px}
+  #btnRefresh{padding:8px 13px;font-size:12.5px}
+  .rigs{grid-template-columns:1fr}
+  .hero h1{font-size:20px}
+  .wrap{padding:0 14px 56px}
+  .hd{padding:11px 14px;gap:10px}.hd .sub{display:none}
+  /* 收起 spacer：窄屏让「↻ 刷新」与状态同行，不再独占一行 */
+  .hd .grow{display:none}
+  .metrics{grid-template-columns:1fr 1fr}
+  .toolbar{gap:7px;padding:10px}
+  .toolbar input{min-width:0;flex:1 1 100%}
+  .toolbar select{flex:1 1 40%}
+  .toolbar .sep{display:none}
+
+  /* ---- 触摸目标：次要按钮 ≥38px、复选框 ≥20px ---- */
+  .btn{padding:10px 16px}
+  .btn.mini{padding:9px 13px;font-size:12.5px;border-radius:10px}
+  .sel-cb{width:20px;height:20px}
+  .toolbar .chk input{width:18px;height:18px}
+  .alert-row button{padding:8px 13px;font-size:12px}
+  .alerts h3 .fold{padding:5px 12px}
+
+  /* ---- 卡片内部换行，避免挤压截断 ---- */
+  .rig{padding:14px 14px 12px}
+  .rig-hd{flex-wrap:wrap;row-gap:8px}
+  .rig-ft{flex-wrap:wrap;row-gap:6px}
+  .rig-ft .info{flex:1 1 100%}
+  .dayrow .dhd{flex-wrap:wrap;row-gap:4px}
+  .dl-grid{grid-template-columns:1fr}
+  /* 注：.kpi .m 两行 clamp 已在本块前部统一声明，此处勿再覆盖 */
+  footer{font-size:11px}
+}
+@media(max-width:430px){
+  .hero .chips{display:none}          /* 手机首屏去掉装饰 chips，噪音 */
+  .hero{padding:18px 0 2px}
+  .hero .hint{font-size:11.5px}
+  .status{padding:6px 10px;font-size:11.5px}
+  .logo{font-size:15px}.logo .mark{width:30px;height:30px}
+  .big b{font-size:24px}
+  .kpi .v{font-size:19px}
+  .toolbar .btn.mini{flex:0 1 auto}
+  .card{margin:26px auto;padding:22px}
+}
+
+/* ---------- 区块小标题 ---------- */
+.sec-hd{display:flex;align-items:center;gap:10px;margin:20px 2px 11px}
+.sec-hd h2{font-size:14px;font-weight:700;letter-spacing:-.1px}
+.sec-hd .line{flex:1;height:1px;background:linear-gradient(90deg,var(--line),transparent)}
 </style>
 </head>
 <body>
 <header>
   <div class="hd">
-    <div class="logo"><span class="dot">⛏</span>挖矿群控 · 中控台</div>
-    <div class="sub">矿机监控 / 告警 / 远程重启</div>
+    <div class="logo"><img class="mark" src="/bapiminer.svg" alt="扒皮矿工">扒皮矿工 <em>中控台</em></div>
+    <div class="sub">矿机监控 · 告警 · 批量远程控制 · 游戏模式让卡</div>
     <div class="grow"></div>
     <div class="status"><span class="live" id="dot"></span><span id="statusText">连接中…</span></div>
+    <span id="meBox" style="display:flex;gap:8px;align-items:center"></span>
     <button class="btn" id="btnRefresh">↻ 刷新</button>
   </div>
 </header>
 
 <div class="wrap">
   <div id="authCard" class="card" style="display:none">
-    <h2>🔒 需要中控口令</h2>
-    <p>输入中控服务 config.json 里的 admin_token，只在本机浏览器记住。</p>
-    <input id="tokenInput" type="password" placeholder="admin_token">
-    <button class="btn primary" style="width:100%" onclick="saveToken()">确认</button>
+    <h2>🔒 登录中控</h2>
+    <p id="authDesc">用你的中控账号登录，只会看到你名下的矿机。</p>
+    <div class="tabs">
+      <button class="btn mini on" id="tabLogin" onclick="switchAuth('login')">登录</button>
+      <button class="btn mini" id="tabReg" onclick="switchAuth('reg')">注册</button>
+    </div>
+    <input id="userInput" type="text" placeholder="用户名" autocomplete="username">
+    <input id="passInput" type="password" placeholder="密码（至少 6 位）" autocomplete="current-password">
+    <input id="pass2Input" type="password" placeholder="确认密码" autocomplete="new-password"
+           style="display:none">
+    <button class="btn primary" style="width:100%" id="authGo" onclick="doAuth()">登录</button>
+    <div id="authMsg" class="hint" style="margin-top:10px"></div>
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;color:var(--muted);font-size:12px">管理员逃生通道（admin_token）</summary>
+      <input id="tokenInput" type="password" placeholder="admin_token" style="margin-top:8px">
+      <button class="btn" style="width:100%" onclick="saveToken()">使用管理员口令进入</button>
+    </details>
+  </div>
+
+  <div id="pwdCard" class="card" style="display:none">
+    <h2>🔑 修改初始密码</h2>
+    <p id="pwdDesc" class="hint">这是首次登录，请先设置你的新密码。设置完成后自动进入系统。</p>
+    <input id="pwdOld" type="password" placeholder="当前（初始）密码" autocomplete="current-password">
+    <input id="pwdNew" type="password" placeholder="新密码（至少 6 位）" autocomplete="new-password">
+    <input id="pwdNew2" type="password" placeholder="确认新密码" autocomplete="new-password">
+    <button class="btn primary" style="width:100%" id="pwdGo" onclick="submitPwdChange()">设置新密码并进入</button>
+    <div id="pwdMsg" class="hint" style="margin-top:10px"></div>
   </div>
 
   <div id="main" style="display:none">
     <div class="errbar" id="errbar"></div>
 
     <div class="hero">
-      <h1>矿机状态总览</h1>
-      <p>每台矿机 30 秒上报一次 · 掉线/降算力/高温自动告警 · 远程重启矿工需二次确认</p>
+      <div>
+        <h1>矿机状态总览</h1>
+        <div class="hint">每台矿机 30 秒上报一次 · 掉线 / 降算力 / 高温自动告警 · 远程操作需二次确认</div>
+      </div>
+      <div class="chips">
+        <span class="chip">毛收益 <b>PRL pearlhash</b></span>
+        <span class="chip">费率口径 <b>含矿池/dev fee 前</b></span>
+      </div>
     </div>
 
     <div class="kpis">
-      <div class="kpi"><div class="k">🖥 在线矿机</div><div class="v" id="k1">—</div><div class="m" id="k1m">&nbsp;</div></div>
-      <div class="kpi g"><div class="k">⚡ 总算力</div><div class="v" id="k2">—</div><div class="m" id="k2m">&nbsp;</div></div>
-      <div class="kpi v"><div class="k">🔌 总功耗</div><div class="v" id="k3">—</div><div class="m" id="k3m">&nbsp;</div></div>
-      <div class="kpi d"><div class="k">💰 预计日收益</div><div class="v" id="k4">—</div><div class="m" id="k4m">&nbsp;</div></div>
+      <div class="kpi"><div class="k"><span class="ic">🖥</span>在线矿机</div><div class="v" id="k1">—</div><div class="m" id="k1m">&nbsp;</div></div>
+      <div class="kpi g"><div class="k"><span class="ic">⚡</span>总算力</div><div class="v" id="k2">—</div><div class="m" id="k2m">&nbsp;</div></div>
+      <div class="kpi v"><div class="k"><span class="ic">🔌</span>总功耗</div><div class="v" id="k3">—</div><div class="m" id="k3m">&nbsp;</div></div>
+      <div class="kpi d"><div class="k"><span class="ic">💰</span>预计日收益</div><div class="v" id="k4">—</div><div class="m" id="k4m">&nbsp;</div></div>
+      <div class="kpi d"><div class="k"><span class="ic">🏦</span>矿池未支付</div><div class="v" id="kw">—</div><div class="m" id="kwm">矿池钱包真实余额</div></div>
+      <div class="kpi"><div class="k"><span class="ic">🎮</span>GPU / 状态</div><div class="v" id="k8">—</div><div class="m" id="k8m">工作中 / 待机 / 离线</div></div>
     </div>
 
-    <div class="alerts" id="alertBox" style="display:none">
-      <h3>🔔 告警 <span class="tag" id="alertCount">0</span></h3>
-      <div id="alertList"></div>
+    <div class="kpis kb">
+      <div class="kpi d"><div class="k"><span class="ic">🪙</span>今日实际收入</div><div class="v" id="kt">—</div><div class="m" id="ktm">矿池钱包今日挖矿收益（币数）</div></div>
+      <div class="kpi d"><div class="k"><span class="ic">📊</span>近 30 天实收</div><div class="v" id="k7">—</div><div class="m" id="k7m">矿池真实打款合计</div></div>
     </div>
 
+    <div class="toolbar">
+      <input id="q" placeholder="🔍 搜索矿工名…" oninput="render()">
+      <select id="fKernel" onchange="render()"><option value="">全部内核</option></select>
+      <select id="fPool" onchange="render()"><option value="">全部矿池</option></select>
+      <label class="chk"><input type="checkbox" id="fOffline" onchange="render()">只看离线</label>
+      <label class="chk" title="按钱包地址聚合矿机，地址中间段脱敏显示"><input type="checkbox" id="fGroup" onchange="render()">按钱包分组</label>
+      <label class="chk" title="精简模式：卡片只保留名称 / 算力 / 收益等主信息，明细收起。管理员默认开启，个人账号默认关闭"><input type="checkbox" id="fCompact" onchange="setCompact(this.checked)">精简卡片</label>
+      <span class="sep"></span>
+      <button class="btn mini" onclick="selAll(1)">全选</button>
+      <button class="btn mini" onclick="selAll(0)">全不选</button>
+      <span class="tag" id="selCount">已选 0 台</span>
+      <span class="sp"></span>
+      <button class="btn mini" onclick="batchCmd('restart_miner')" title="批量重启矿工">↻ 重启</button>
+      <button class="btn mini" onclick="batchCmd('start_miner')" title="批量启动挖矿">▶ 启动</button>
+      <button class="btn mini" onclick="batchCmd('stop_miner')" title="批量停止挖矿">■ 停止</button>
+      <button class="btn mini" onclick="batchCmd('gamemode_on')" title="批量开启游戏模式让卡">🎮 让卡</button>
+      <button class="btn mini" onclick="batchCmd('gamemode_off')" title="批量关闭游戏模式恢复挖矿">🎮 恢复</button>
+      <button class="btn mini" onclick="batchCmd('update_kernel')" title="从中控下载最新内核并重启矿工">⬇ 更新内核</button>
+      <button class="btn mini" onclick="batchCmd('update_client')" title="让选中矿机把自身客户端升级到中控上的最新版本">⬆ 升级客户端</button>
+      <button class="btn mini" onclick="openCfgBatch()" title="给选中矿机批量更换矿池 / 切换挖矿内核">⚙ 批量配置</button>
+    </div>
+
+    <div class="sec-hd"><h2>矿机列表</h2><span class="tag" id="rigCount">—</span><span class="line"></span></div>
     <div class="rigs" id="rigs"></div>
     <div class="empty" id="empty" style="display:none">还没有矿机接入 —— 把 agent 目录拷到矿机、改好 config.json 跑起来即可</div>
+
+    <div class="alerts" id="userMgmt" style="display:none">
+      <h3 onclick="toggleBox('userMgmt')">👥 用户管理 <span class="tag">仅管理员</span>
+        <span class="fold" id="userFold">收起</span></h3>
+      <div class="al-body"><div id="userList"></div></div>
+    </div>
+
+    <div class="alerts" id="dlBox" style="display:none">
+      <h3 onclick="toggleBox('dlBox')">📦 客户端下载 <span class="tag" id="dlHint">—</span>
+        <span class="fold" id="dlFold">收起</span></h3>
+      <div class="al-body"><div class="dl-grid" id="dlList"></div></div>
+    </div>
+
+    <div class="alerts" id="kernelBox" style="display:none">
+      <h3 onclick="toggleBox('kernelBox')">💾 挖矿内核 <span class="tag" id="kernelChecked"></span>
+        <span class="fold" id="kernelFold">收起</span></h3>
+      <div class="al-body">
+        <div style="margin-bottom:9px"><button class="btn mini" onclick="checkKernels();event.stopPropagation()">⟳ 检查最新版</button></div>
+        <div id="kernelList"></div>
+      </div>
+    </div>
+
+    <div class="alerts" id="dailyBox" style="display:none">
+      <h3 onclick="toggleBox('dailyBox')">📅 按天明细（按矿机/矿池估算）<span class="fold" id="dailyFold">收起</span></h3>
+      <div class="al-body"><div id="dailyList"></div></div>
+    </div>
+
+    <div class="alerts collapsed" id="alertBox" style="display:none">
+      <h3 onclick="toggleBox('alertBox')">🔔 告警 <span class="tag" id="alertCount">0</span>
+        <span class="fold" id="alertFold">展开</span></h3>
+      <div class="al-body"><div id="alertList"></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- 矿池 / 内核配置弹窗（单机与批量共用） -->
+<div class="mask" id="cfgMask" style="display:none" onclick="if(event.target===this)closeCfg()">
+  <div class="cfg-panel">
+    <div class="cfg-hd">⚙ 挖矿配置<span class="cfg-sub" id="cfgSub"></span>
+      <button class="btn mini" onclick="closeCfg()">✕ 关闭</button></div>
+    <div class="cfg-body">
+      <div class="cfg-cur" id="cfgCur"></div>
+      <div class="cfg-sec">
+        <div class="cfg-t">⛏ 更换矿池</div>
+        <div class="cfg-row">
+          <select id="cfgBrand" onchange="cfgBrandChange()"></select>
+          <select id="cfgNode" onchange="cfgNodeChange()"></select>
+        </div>
+        <div class="cfg-row" id="cfgCustomRow" style="display:none">
+          <input id="cfgCustomUrl" placeholder="stratum+tcp://主机:端口" oninput="cfgCustomInput()">
+        </div>
+        <div class="cfg-note" id="cfgPoolNote"></div>
+      </div>
+      <div class="cfg-sec">
+        <div class="cfg-t">🔧 切换挖矿内核</div>
+        <div class="cfg-kerns" id="cfgKernels"></div>
+        <div class="cfg-note" id="cfgKernelNote"></div>
+      </div>
+    </div>
+    <div class="cfg-ft">
+      <span class="cfg-hint">下发后矿机端在 ≤30 秒的轮询周期内执行：缺失的内核会自动从中控下载 → 写入配置 → 重启矿工，约 1 分钟恢复正常挖矿。</span>
+      <button class="btn" id="cfgSubmit" onclick="submitCfg()">下发</button>
+    </div>
   </div>
 </div>
 
 <footer>
   告警规则：掉线（150 秒无心跳）· 算力较 1 小时均值降 25% · GPU ≥ 83C<br>
-  日收益按 PRL 实时收益率折算（来源：显卡算力性价比榜），含矿池/dev fee 前毛收益
+  日收益估算 = 总算力 × 全网均价(USDT/TH/s/天) × 实时汇率（数据来源：vminers.com PRL 实测榜），含矿池/dev fee 前毛收益<br>
+  实收/未支付余额/打款记录来自矿池 API（Kryptex Pool）真实数据；矿池攒满起付线（1 PRL）批量打款，实收按到账日计，晚于实际挖矿日<br>
+  今日实际收入 = 矿池奖励曲线（reward-chart）当日收益，按北京时间汇总；与「实收」的区别：实收是攒满起付线后的批量打款到账，今日实际收入是当天真实挖矿收益（币数）
 </footer>
 
 <script>
-const TOKEN_KEY = 'minrigs_admin_token';
-let adminToken = localStorage.getItem(TOKEN_KEY) || '';
+const TOKEN_KEY = 'bapiminer_admin_token';
+const USER_KEY = 'bapiminer_user_token';
+const USER_NAME_KEY = 'bapiminer_username';
+let adminToken = localStorage.getItem(TOKEN_KEY) || '';   // 管理员逃生通道
+let userToken = localStorage.getItem(USER_KEY) || '';       // 普通用户会话
+let me = null;                                             // 当前登录用户信息
 
 /* 支持书签直开：#token=adm_xxx 写入本机后立即清掉 hash，避免留在历史记录里 */
 (function () {
@@ -178,6 +623,14 @@ let adminToken = localStorage.getItem(TOKEN_KEY) || '';
 })();
 
 const $ = id => document.getElementById(id);
+
+/* 登录态世代号：每次登录/登出/401 自增。
+   作用是作废「上一代登录态」发起的在途请求 ——
+   否则 15 秒轮询的旧请求会在新账号登录后才返回，
+   用旧数据覆盖新账号的界面（表现为：登录成功却看不到自己的矿机）。
+   必须用数字自增而不是布尔值：同一秒内可能连续发生多次切换。 */
+let _authGen = 0;
+
 function num(v, d = 1) {
   if (v === null || v === undefined || isNaN(v)) return '—';
   return Number(v).toLocaleString('zh-CN', { minimumFractionDigits: d, maximumFractionDigits: d });
@@ -198,96 +651,718 @@ function ago(ts) {
 }
 
 async function api(path, opts) {
-  const h = Object.assign({ 'X-Admin-Token': adminToken }, (opts && opts.headers) || {});
+  const h = Object.assign({}, (opts && opts.headers) || {});
+  // 用户会话优先；没有则退回管理员逃生通道
+  if (userToken) h['X-User-Token'] = userToken;
+  else if (adminToken) h['X-Admin-Token'] = adminToken;
+  const gen = _authGen;
   const r = await fetch(path, Object.assign({}, opts, { headers: h, cache: 'no-store' }));
   const d = await r.json();
+  // 登录态已切换 → 这个响应属于上一代，丢弃（否则会用旧账号数据覆盖新账号界面）
+  if (gen !== _authGen) throw new Error('stale');
   if (r.status === 401) { showAuth(); throw new Error('unauthorized'); }
   if (!d.ok) throw new Error(d.error || '请求失败');
   return d;
 }
 
 function showAuth() {
+  _authGen++;                       // 作废在途的旧登录态请求
   $('authCard').style.display = 'block';
+  $('pwdCard').style.display = 'none';
   $('main').style.display = 'none';
+  _pendingPwdUser = ''; _pendingPwdOld = '';
+  if (userToken) { try { localStorage.removeItem(USER_KEY); } catch (e) { } userToken = ''; }
+  // 清空上一个账号渲染出来的数据 —— 共享浏览器场景下，
+  // 下一个账号登录前不该在 DOM 里看到别人的矿机/钱包/收益。
+  clearRenderedData();
 }
+
+/* 清空所有已渲染的敏感数据（退出登录 / 401 时调用） */
+function clearRenderedData() {
+  S.fleet = null; S.alerts = []; S.daily = null; S.me = null; me = null;
+  SEL.clear();
+  try { RIG_EXPANDED.clear(); } catch (e) { }
+  const rigs = $('rigs'); if (rigs) rigs.innerHTML = '';
+  const dl = $('dlList'); if (dl) dl.innerHTML = '';
+  const ul = $('userList'); if (ul) ul.innerHTML = '';
+  S.users = [];
+  const mb = $('meBox'); if (mb) mb.innerHTML = '';
+  const um = $('userMgmt'); if (um) um.style.display = 'none';
+  $('selCount').textContent = '已选 0 台';
+  ['k1', 'k2', 'k3', 'k4', 'kw', 'kt', 'k7', 'k8'].forEach(id => {
+    const el = $(id); if (el) el.textContent = '—';
+  });
+  ['k1m', 'k2m', 'k3m', 'k4m', 'kwm', 'ktm', 'k7m', 'k8m'].forEach(id => {
+    const el = $(id); if (el) el.innerHTML = '&nbsp;';
+  });
+  const eb = $('errbar'); if (eb) { eb.style.display = 'none'; eb.textContent = ''; }
+  // 筛选条件也要复位 —— 上一个账号选中的内核/矿池/搜索词
+  // 会让下一个账号的矿机被过滤掉（表现为「登录成功但一台矿机都没有」）
+  const q = $('q'); if (q) q.value = '';
+  const fk = $('fKernel'); if (fk) fk.value = '';
+  const fp = $('fPool'); if (fp) fp.value = '';
+  const fo = $('fOffline'); if (fo) fo.checked = false;
+}
+
+/* ---------- 登录 / 注册 ---------- */
+let _authMode = 'login';
+function switchAuth(mode) {
+  _authMode = mode;
+  const reg = mode === 'reg';
+  $('tabLogin').className = 'btn mini' + (reg ? '' : ' on');
+  $('tabReg').className = 'btn mini' + (reg ? ' on' : '');
+  $('authGo').textContent = reg ? '注册并登录' : '登录';
+  $('pass2Input').style.display = reg ? 'block' : 'none';
+  $('passInput').setAttribute('autocomplete', reg ? 'new-password' : 'current-password');
+  $('authMsg').textContent = '';
+}
+
+async function doAuth() {
+  const u = $('userInput').value.trim();
+  const p = $('passInput').value;
+  const msg = $('authMsg');
+  if (!u || !p) { msg.textContent = '请填写用户名和密码'; return; }
+  if (_authMode === 'reg') {
+    if (p !== $('pass2Input').value) { msg.textContent = '两次输入的密码不一致'; return; }
+    if (p.length < 6) { msg.textContent = '密码至少 6 位'; return; }
+  }
+  msg.textContent = '处理中…';
+  const path = _authMode === 'reg' ? '/api/auth/register' : '/api/auth/login';
+  try {
+    const r = await fetch(path, {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    const d = await r.json();
+    if (!d.ok) { msg.textContent = d.error || '操作失败'; return; }
+    // ★ 首次登录必须先改密（部署预置的初始密码不得长期使用）
+    if (d.need_password_change) {
+      _pendingPwdUser = u;
+      _pendingPwdOld = p;
+      $('pwdOld').value = '';
+      $('pwdNew').value = '';
+      $('pwdNew2').value = '';
+      $('pwdMsg').textContent = '';
+      $('authCard').style.display = 'none';
+      $('pwdCard').style.display = 'block';
+      return;
+    }
+    userToken = d.token;
+    localStorage.setItem(USER_KEY, userToken);
+    localStorage.setItem(USER_NAME_KEY, d.user ? d.user.username : u);
+    $('authCard').style.display = 'none';
+    _authGen++;                     // 新登录态：作废旧的在途请求
+    await load();
+  } catch (e) {
+    msg.textContent = '请求失败：' + e;
+  }
+}
+
+/* ---------- 首次登录强制改密 ---------- */
+async function submitPwdChange() {
+  const msg = $('pwdMsg');
+  const oldP = $('pwdOld').value;
+  const n1 = $('pwdNew').value;
+  const n2 = $('pwdNew2').value;
+  if (!oldP) { msg.textContent = '请输入当前密码'; return; }
+  if (!n1) { msg.textContent = '请输入新密码'; return; }
+  if (n1.length < 6) { msg.textContent = '新密码至少 6 位'; return; }
+  if (n1 !== n2) { msg.textContent = '两次输入的新密码不一致'; return; }
+  msg.textContent = '提交中…';
+  try {
+    const r = await fetch('/api/auth/change_password', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: _pendingPwdUser,
+        old_password: oldP, new_password: n1
+      })
+    });
+    const d = await r.json();
+    if (!d.ok) { msg.textContent = d.error || '修改失败'; return; }
+    // 改密成功 → 用新密码登录
+    msg.textContent = '密码已更新，正在登录…';
+    $('userInput').value = _pendingPwdUser;
+    $('passInput').value = n1;
+    const lr = await fetch('/api/auth/login', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: _pendingPwdUser, password: n1 })
+    });
+    const ld = await lr.json();
+    if (!ld.ok) {
+      msg.textContent = '密码已修改，但自动登录失败：' + (ld.error || '请手动登录');
+      $('pwdCard').style.display = 'none';
+      $('authCard').style.display = 'block';
+      return;
+    }
+    userToken = ld.token;
+    localStorage.setItem(USER_KEY, userToken);
+    localStorage.setItem(USER_NAME_KEY, ld.user ? ld.user.username : _pendingPwdUser);
+    $('pwdCard').style.display = 'none';
+    _pendingPwdUser = ''; _pendingPwdOld = '';
+    _authGen++;
+    await load();
+  } catch (e) {
+    msg.textContent = '请求失败：' + e;
+  }
+}
+
 function saveToken() {
   adminToken = $('tokenInput').value.trim();
   if (!adminToken) return;
   localStorage.setItem(TOKEN_KEY, adminToken);
+  userToken = '';
+  try { localStorage.removeItem(USER_KEY); } catch (e) { }
   $('authCard').style.display = 'none';
+  _authGen++;
   load();
 }
 
+function logout() {
+  if (userToken) {
+    fetch('/api/auth/logout', {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', 'X-User-Token': userToken },
+      body: '{}'
+    }).catch(() => { });
+  }
+  userToken = '';
+  try { localStorage.removeItem(USER_KEY); } catch (e) { }
+  RIG_EXPANDED.clear();
+  showAuth();
+}
 /* ---------- 渲染 ---------- */
+let _sgid = 0;
 function sparkline(hist) {
   const pts = hist.filter(x => x.ths !== null && x.ths !== undefined);
-  if (pts.length < 2) return '<div style="height:44px;display:grid;place-items:center;color:#c2cbd8;font-size:11px">暂无足够曲线数据</div>';
-  const W = 350, H = 44, P = 3;
+  if (pts.length < 2) return '<div style="height:46px;display:grid;place-items:center;color:#b9c4d4;font-size:11px;background:#fafcff;border-radius:8px">暂无足够曲线数据</div>';
+  const W = 350, H = 46, P = 4;
   const vals = pts.map(p => p.ths);
   const mn = Math.min(...vals), mx = Math.max(...vals), rng = (mx - mn) || 1;
   const X = i => P + i / (pts.length - 1) * (W - 2 * P);
   const Y = v => P + (1 - (v - mn) / rng) * (H - 2 * P);
   const line = pts.map((p, i) => `${X(i).toFixed(1)},${Y(p.ths).toFixed(1)}`).join(' ');
-  return `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:44px">
-    <polyline points="${line}" fill="none" stroke="#3b82f6" stroke-width="1.6" stroke-linejoin="round"/>
-    <circle cx="${X(pts.length - 1).toFixed(1)}" cy="${Y(vals[vals.length - 1]).toFixed(1)}" r="2.4" fill="#3b82f6"/></svg>`;
+  const area = `${P},${H - P} ` + line + ` ${(W - P).toFixed(1)},${H - P}`;
+  const gid = 'sg' + (++_sgid);
+  const lx = X(pts.length - 1).toFixed(1), ly = Y(vals[vals.length - 1]).toFixed(1);
+  return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:46px;display:block">
+    <defs>
+      <linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#10b981" stop-opacity=".22"/>
+        <stop offset="100%" stop-color="#10b981" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="${gid}s" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#0f9d63"/>
+      </linearGradient>
+    </defs>
+    <polygon points="${area}" fill="url(#${gid})"/>
+    <polyline points="${line}" fill="none" stroke="url(#${gid}s)" stroke-width="1.8"
+      stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${lx}" cy="${ly}" r="4.2" fill="#10b981" opacity=".16"/>
+    <circle cx="${lx}" cy="${ly}" r="2.2" fill="#0f9d63" stroke="#fff" stroke-width="1"/>
+  </svg>`;
+}
+
+function clientVerTag(r) {
+  const latest = (S.fleet && S.fleet.total && S.fleet.total.client_latest) || '';
+  const ver = r.client_version || '';
+  if (!ver) return '<span class="tag" style="background:#fff3d6;color:#8a5b00" title="该矿机客户端版本未知（v1.6 旧版不上报版本号）。在「客户端下载」下载新版 BaPiMiner.exe 手动替换一次，之后即可自动升级并显示版本">客户端未知 · 建议升级</span>';
+  if (latest && ver !== latest) return `<span class="tag" style="background:#fff3d6;color:#8a5b00" title="中控最新 ${esc(latest)}，看板勾选后点「⬆ 升级客户端」可立即下发">客户端 ${esc(ver)} ↑可升级</span>`;
+  return `<span class="tag" style="background:#e8f7ee;color:#1a7f47" title="客户端已是中控最新版">客户端 ${esc(ver)}</span>`;
+}
+
+/* 内核展示名 -> catalog 短名（srbminer/bzminer/wildrig）。
+   catalog 以短名为键；曾漏掉 wildrig 分支，导致 WildRig 机器被算进
+   srbminer 的版本比较/升级名单（0.51.7 比 3.8.0 误报「可更新」）。 */
+function kernelShort(kn) {
+  const s = kn || '';
+  if (/wildrig/i.test(s)) return 'wildrig';
+  if (/bz/i.test(s)) return 'bzminer';
+  return 'srbminer';
+}
+
+function kernelTag(r) {
+  const s = r.snapshot || {};
+  const cat = (S.kernels && S.kernels.catalog) || {};
+  const key = kernelShort(s.kernel);
+  const item = cat[key];
+  // 版本号归一化：容忍 "v0.51.7" / "0.51.7 " 之类差异，只比数字部分
+  const norm = v => (v || '').replace(/^v/i, '').trim();
+  const cur = norm(s.kernel_ver);
+  if (!cur) return '<span class="tag" style="background:#fff3d6;color:#8a5b00" title="旧版客户端不上报内核版本。在「客户端下载」换新版 BaPiMiner.exe，或点「更新内核」后即可正常显示">内核版本未知 · 建议升级</span>';
+  if (item && norm(item.version) && norm(item.version) !== cur) {
+    return `<span class="tag" style="background:#fff3d6;color:#8a5b00" title="中控最新 ${esc(item.version)}，可下「更新内核」升级">内核 ${esc(cur)} ↑可更新</span>`;
+  }
+  return `<span class="tag" style="background:#e8f7ee;color:#1a7f47" title="内核已是最新">内核 ${esc(cur)}</span>`;
 }
 
 function rigCard(r) {
   const s = r.snapshot || {};
   const on = r.status === 'online';
+  const gm = !!r.game_mode;
   const gpus = s.gpus || [];
   const miners = s.miners || [];
   const m0 = miners[0] || {};
   const mAlive = m0.alive;
-  const pool = (m0.pool || '').replace(/^stratum\+?(tcp|ssl):\/\//, '');
+  const pool = poolName(r.pool_url || m0.pool || '');
   const gpuChips = gpus.map(g =>
     `<span class="gpu-chip ${g.temp >= 80 ? 'hot' : ''}">#${g.index} <b>${num(g.temp, 0)}°C</b> ${num(g.fan, 0)}% · ${num(g.power, 0)}W</span>`
   ).join('');
+  const conflicts = s.conflicts || [];
+  const conflictTag = conflicts.length
+    ? `<span class="tag" style="background:#ffe9e9;color:#b32020" title="本机在跑：${esc(conflicts.join('、'))}，会抢显卡拉低算力">⚠ 其他矿工 ${conflicts.length}</span>`
+    : '';
   const rejRate = (s.accepted + s.rejected) ? (s.rejected / (s.accepted + s.rejected) * 100) : 0;
-  return `<div class="rig ${on ? '' : 'offline'}">
+  const compact = COMPACT_CARDS;
+  const expanded = rigCardExpanded(r.name);
+  const nm = esc(r.name);
+  // 归属徽标：形态与矿机名（粗体黑字）明确区分 —— 圆形首字母头像 + 常规字重用户名。
+  // 未绑定用虚线空槽 + 中性色（是「待填」而非「故障」），避免满屏未绑定时变成橙色噪音墙。
+  // 归属由矿机端首次登录自动产生，管理员不需要（也不能）在这里手工指定。
+  const unbound = !r.owner_id;
+  const ownerTag = (me && me.is_admin)
+    ? (unbound
+      ? `<span class="tag own free"
+          title="该矿机尚未绑定账号。请在矿机端用目标账号登录，首次登录即自动绑定归属。">未绑定</span>`
+      : (r.owner_name
+        ? `<span class="tag own" title="归属账号：${esc(r.owner_name)}"><span class="av">${esc((r.owner_name || '?')[0].toUpperCase())}</span><span class="un">${esc(r.owner_name)}</span></span>`
+        : ''))
+    : '';
+  const disp = esc(r.display_name || r.name);
+
+  // 主信息：算力 / 收益 / 钱包 —— 两种模式都常驻
+  const incomeChip = s.income_cny_day ? `<span class="income">≈ ¥${num(s.income_cny_day, 0)}/天</span>` : '';
+  const walletChip = r.wallet ? (r.wallet.pending
+    ? `<span class="income" style="background:#f3f4f6;color:var(--muted)" title="中控正在拉取该钱包的链上交易与矿池余额，稍后显示">🏦 拉取中</span>`
+    : r.wallet.unpaid_supported === false
+      ? `<span class="income" style="background:#f3f4f6;color:var(--muted)" title="当前矿池（${esc(r.wallet.pool_brand || '')}）不提供公开的余额查询接口，待付无法显示；链上实际到账不受影响">🏦 待付不可查</span>`
+      : `<span class="income" style="background:#eef4ff" title="矿池钱包未支付余额（起付线 ${num(r.wallet.threshold, 2)} ${esc((r.wallet.coin || '').toUpperCase())}）${(r.wallet.rewards || {}).today ? ' · 今日收益 ' + num(r.wallet.rewards.today, 4) + ' ' + esc((r.wallet.coin || '').toUpperCase()) : ''}">🏦 ${num(r.wallet.total, 4)} ${esc((r.wallet.coin || '').toUpperCase())} · ${num(r.wallet.pct, 0)}%</span>`) : '';
+  const footInfo = `${on ? '心跳 ' + ago(r.last_seen) : '离线 ' + ago(r.last_seen)}${pool ? ' · <span style="color:var(--brand-ink);font-weight:600" title="' + esc(r.pool_url || m0.pool || '') + '">⛏ ' + esc(pool) + '</span>' : ''}${m0.error ? ' · ' + esc(m0.error) : ''}`;
+
+  // 头部操作组：两种模式恒定为「改名 / 模式 / 更多」，控件数量与宽度不随模式漂移。
+  // 次要操作（重启 / 重置 / 配置）收进「更多」菜单，明细区不再重复承载，保持单一入口。
+  const btnMain = `
+      <button class="btn mini" onclick="renameRig('${nm}', '${disp}')" title="修改这台矿机在中控里显示的名字">✏️ 改名</button>
+      <button class="btn mini ${gm ? 'gm-on' : ''}" onclick="toggleGM('${nm}', ${gm})"
+        title="${gm ? '关闭游戏模式：立即恢复挖矿' : '开启游戏模式：矿机端检测到有人用电脑时自动停挖让卡'}">${gm ? '🎮 让卡中' : '🎮 模式'}</button>`;
+  // 「更多」菜单：次要操作的唯一入口。菜单项带图标 + 文案 + 说明，键盘可达、可 Esc 关闭。
+  // 点击项时先关菜单再执行动作：避免菜单关闭时的「归还焦点」与动作的确认框抢焦点。
+  const moreMenu = `
+      <div class="rig-menu" id="rm-${esc(r.name)}" hidden>
+        <button class="rig-menu-item danger" onclick="closeRigMenu(false);restart('${nm}')"><i>↻</i><b>重启矿机</b><span>立刻重启该机上的挖矿进程</span></button>
+        <button class="rig-menu-item" onclick="closeRigMenu(false);resetToken('${nm}')"><i>🔑</i><b>重置客户端密钥</b><span>重装或更换客户端后报 401 时使用</span></button>
+        <button class="rig-menu-item" onclick="closeRigMenu(false);openCfg('${nm}')"><i>⚙</i><b>配置矿池 / 内核</b><span>更换矿池或切换挖矿内核</span></button>
+      </div>`;
+
+  return `<div class="rig ${on ? '' : 'offline'} ${compact ? 'mini' : ''}">
     <div class="rig-hd">
+      <input type="checkbox" class="sel-cb" ${SEL.has(r.name) ? 'checked' : ''} onclick="event.stopPropagation();selRig('${nm}', this.checked)" title="选中用于批量操作">
       <span class="dot ${on ? 'on' : 'off'}"></span>
-      <span class="nm">${esc(r.name)}</span>
-      <span class="tag miner ${mAlive ? '' : 'dead'}">${esc(m0.type || 'miner')} ${mAlive ? '' : '✕ 未响应'}</span>
-      <span class="sp"></span>
-      <button class="btn mini danger" onclick="restart('${esc(r.name)}')">↻ 重启矿工</button>
+      <span class="nm" title="机器标识 ${nm}（不可改）">${disp}</span>
+      <div class="rig-acts">${btnMain}
+        <button class="btn mini ico" onclick="toggleRigMenu('${nm}', event)" title="更多操作"
+          aria-haspopup="true" aria-expanded="false" aria-label="更多操作">⋯</button>
+      </div>
     </div>
-    <div class="big"><b>${num(s.ths, 1)}</b><span>TH/s${s.model ? ' · ' + esc(s.model).replace('NVIDIA GeForce ', '') : ''}</span></div>
-    <div class="metrics">
-      <div class="metric"><div class="k">功耗</div><div class="v">${num(s.power, 0)} W</div></div>
-      <div class="metric"><div class="k">温度 / 风扇</div><div class="v">${gpus.length ? num(Math.max(...gpus.map(g => g.temp)), 0) + '°C / ' + num(Math.max(...gpus.map(g => g.fan)), 0) + '%' : '—'}</div></div>
-      <div class="metric"><div class="k">有效 / 拒绝</div><div class="v">${num(s.accepted, 0)} / <span style="color:${rejRate > 5 ? 'var(--up)' : 'inherit'}">${num(s.rejected, 0)}</span></div></div>
-      <div class="metric"><div class="k">连续运行</div><div class="v">${fmtUptime(s.uptime)}</div></div>
+    ${(() => {
+      // 元信息行只在有内容时渲染，避免个人视角出现空白行
+      const bits = [
+        ownerTag,
+        (r.display_name && r.display_name !== r.name)
+          ? `<span class="tag mid" title="机器标识（不可改）：${nm}">${nm}</span>` : '',
+        conflicts.length
+          ? `<span class="tag" style="background:#ffe9e9;color:#b32020" title="本机在跑：${esc(conflicts.join('、'))}，会抢显卡拉低算力">⚠ 其他矿工 ${conflicts.length}</span>` : '',
+      ].filter(Boolean);
+      return bits.length ? `<div class="rig-meta">${bits.join('')}</div>` : '';
+    })()}
+    <div class="rig-sum">
+      <div class="big"><b>${num(s.ths, 1)}</b><span>TH/s${s.model ? ' · ' + esc(s.model).replace('NVIDIA GeForce ', '') : ''}${gm ? ' · ⏸ 让卡中' + (s.game_proc ? '（' + esc(s.game_proc) + '）' : '') : ''}</span></div>
+      <div class="sum-tags">${incomeChip}${walletChip}</div>
+      ${compact ? `<button class="btn mini rig-fold" data-rig-fold="${nm}" onclick="toggleRigCard('${nm}')"
+        title="${expanded ? '收起明细' : '展开明细（内核 / 指标 / 曲线 / 显卡温度）'}">${expanded ? '▲ 收起' : '▼ 详情'}</button>` : ''}
     </div>
-    ${sparkline(r.history || [])}
-    ${gpuChips ? `<div class="gpu-row">${gpuChips}</div>` : ''}
-    <div class="rig-ft">
-      <span class="info">${on ? '心跳 ' + ago(r.last_seen) : '离线 ' + ago(r.last_seen)}${pool ? ' · ' + esc(pool.slice(0, 30)) : ''}${m0.error ? ' · ' + esc(m0.error) : ''}</span>
-      ${s.income_cny_day ? `<span class="income">≈ ¥${num(s.income_cny_day, 0)}/天</span>` : ''}
+    <div class="rig-detail" data-rig-detail="${nm}" ${compact && !expanded ? 'hidden' : ''}>
+      <div class="rig-tags">
+        ${gm ? '<span class="tag gm">🎮 游戏模式</span>' : ''}
+        <span class="tag miner ${mAlive ? '' : 'dead'}">${esc(m0.type || 'miner')} ${mAlive ? '' : '✕ 未响应'}</span>
+        ${kernelTag(r)}${clientVerTag(r)}${conflictTag}
+      </div>
+      <div class="metrics">
+        <div class="metric"><div class="k">功耗</div><div class="v">${num(s.power, 0)} W</div></div>
+        <div class="metric"><div class="k">温度 / 风扇</div><div class="v">${gpus.length ? num(Math.max(...gpus.map(g => g.temp)), 0) + '°C / ' + num(Math.max(...gpus.map(g => g.fan)), 0) + '%' : '—'}</div></div>
+        <div class="metric"><div class="k">有效 / 拒绝</div><div class="v">${num(s.accepted, 0)} / <span style="color:${rejRate > 5 ? 'var(--up)' : 'inherit'}">${num(s.rejected, 0)}</span></div></div>
+        <div class="metric"><div class="k">连续运行</div><div class="v">${fmtUptime(s.uptime)}</div></div>
+      </div>
+      ${sparkline(r.history || [])}
+      ${gpuChips ? `<div class="gpu-row">${gpuChips}</div>` : ''}
+      <div class="rig-ft">
+        <span class="info">${footInfo}</span>
+      </div>
     </div>
+    ${moreMenu}
   </div>`;
 }
 
-let S = { fleet: null, alerts: [] };
+/* 卡片明细展开状态：精简模式下默认收起，用户手动展开的按矿机记住 */
+function rigCardExpanded(name) {
+  return !COMPACT_CARDS || RIG_EXPANDED.has(name);
+}
+
+function toggleRigCard(name) {
+  if (RIG_EXPANDED.has(name)) RIG_EXPANDED.delete(name);
+  else RIG_EXPANDED.add(name);
+  const box = document.querySelector(`[data-rig-detail="${CSS.escape(name)}"]`);
+  if (box) box.hidden = !rigCardExpanded(name);
+  const btn = document.querySelector(`[data-rig-fold="${CSS.escape(name)}"]`);
+  if (btn) btn.textContent = rigCardExpanded(name) ? '▲ 收起' : '▼ 详情';
+}
+
+/* ---------- 卡片「更多」菜单（次要操作唯一入口） ---------- */
+let _rigMenuOpen = '';      // 当前展开的矿机名
+let _rigMenuTrig = null;    // 触发按钮（关闭后归还焦点）
+
+function closeRigMenu(restoreFocus = true) {
+  if (!_rigMenuOpen) return;
+  const box = document.getElementById('rm-' + _rigMenuOpen);
+  if (box) box.hidden = true;
+  const card = box ? box.closest('.rig') : null;
+  if (card) card.classList.remove('menu-open');
+  const trig = _rigMenuTrig;
+  _rigMenuOpen = '';
+  _rigMenuTrig = null;
+  // 菜单项被点击时（restoreFocus=false），动作会紧接着弹确认框，
+  // 此时归还焦点会和确认框抢焦点，故跳过。
+  if (restoreFocus && trig && document.contains(trig)) trig.focus();
+}
+
+function toggleRigMenu(name, ev) {
+  if (ev) ev.stopPropagation();
+  if (_rigMenuOpen === name) { closeRigMenu(); return; }
+  closeRigMenu();
+  const box = document.getElementById('rm-' + name);
+  if (!box) return;
+  box.hidden = false;
+  _rigMenuOpen = name;
+  _rigMenuTrig = ev && ev.currentTarget ? ev.currentTarget : null;
+  const card = box.closest('.rig');
+  if (card) card.classList.add('menu-open');
+  // 焦点落到首个菜单项，键盘用户可直接 Tab 走完
+  const first = box.querySelector('.rig-menu-item');
+  if (first) first.focus();
+}
+
+/* 点击菜单外部 / 按 Esc → 关闭 */
+document.addEventListener('click', (e) => {
+  if (!_rigMenuOpen) return;
+  if (e.target.closest && e.target.closest('.rig-menu')) return;
+  if (e.target.closest && e.target.closest('.rig-acts')) return;
+  closeRigMenu();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && _rigMenuOpen) { e.preventDefault(); closeRigMenu(); }
+});
+
+/* 精简卡片偏好：按角色分开存，避免同一浏览器换账号后串味 */
+function compactPrefKey() {
+  return 'bapiminer_compact_' + (me && me.is_admin ? 'admin' : 'user');
+}
+function applyCompactPref() {
+  let v = null;
+  try { v = localStorage.getItem(compactPrefKey()); } catch (e) { }
+  // 管理员默认精简（一眼扫全部矿机），个人用户默认全展开
+  COMPACT_CARDS = v === null ? !!(me && me.is_admin) : v === '1';
+  const cb = $('fCompact');
+  if (cb) cb.checked = COMPACT_CARDS;
+}
+function setCompact(on) {
+  COMPACT_CARDS = !!on;
+  try { localStorage.setItem(compactPrefKey(), COMPACT_CARDS ? '1' : '0'); } catch (e) { }
+  render();
+}
+
+let S = { fleet: null, alerts: [], daily: null, kernels: null, pools: null, users: [] };
+/* 首次登录强制改密：暂存待改密的账号与初始密码 */
+let _pendingPwdUser = '';
+let _pendingPwdOld = '';
+const SEL = new Set();
+/* 卡片明细展开状态（精简模式下默认收起，用户手动展开的按矿机记住） */
+const RIG_EXPANDED = new Set();
+let COMPACT_CARDS = false;
+
+function fillSelect(id, values) {
+  const el = $(id), cur = el.value;
+  const opts = ['<option value="">全部</option>'].concat(
+    Array.from(values).sort().map(v => `<option value="${esc(v)}">${esc(v)}</option>`));
+  el.innerHTML = opts.join('');
+  if (cur && Array.from(values).includes(cur)) el.value = cur;
+}
+
+// 钱包地址脱敏：保留前 8 位 + 后 6 位，中间固定 10 个 • （不管原地址多长）
+function maskWallet(a) {
+  const s = (a || '').trim();
+  if (!s) return '';
+  if (s.length <= 18) return s;
+  return s.slice(0, 8) + '••••••••••' + s.slice(-6);
+}
+
+// 矿机列表渲染：普通模式直接铺卡片；勾选「按钱包分组」后按钱包聚合，
+// 每组一个组头（脱敏地址 + 台数/在线/合计算力功耗 + 待付余额）+ 组内矿机卡片
+function renderRigs(list) {
+  if (!$('fGroup') || !$('fGroup').checked) return list.map(rigCard).join('');
+  const groups = new Map();
+  list.forEach(r => {
+    const w = (r.wallet && r.wallet.wallet) || '';
+    const k = w || '_none';
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(r);
+  });
+  const out = [];
+  for (const [k, rs] of groups) {
+    const ths = rs.reduce((a, r) => a + ((r.snapshot || {}).ths || 0), 0);
+    const pw = rs.reduce((a, r) => a + ((r.snapshot || {}).power || 0), 0);
+    const online = rs.filter(r => r.status === 'online').length;
+    const w0 = rs[0].wallet || {};
+    const coin = (w0.coin || 'prl').toUpperCase();
+    const brands = new Set(rs.map(r => (r.wallet || {}).pool_brand || ''));
+    const label = k === '_none' ? '（未设置钱包）' : esc(maskWallet(k));
+    const onlineDot = online === rs.length ? 'on' : online ? 'mid' : 'off';
+    out.push(`<div class="wgroup-hd"><span class="dot ${onlineDot}"></span>` +
+      `<span class="wm" title="${k === '_none' ? '' : esc(k)}">${label}</span>` +
+      `<span class="sep2"></span>` +
+      `<span class="tag">${coin}</span>` +
+      `<span class="tag">${rs.length} 台 · ${online} 在线</span>` +
+      `<span class="tag">⛏ ${num(ths, 1)} TH/s · ${num(pw, 0)} W</span>` +
+      // 同钱包同池才显示待付余额（跨池余额不互通，混池显示会误导）
+      (w0.total != null && brands.size === 1
+        ? `<span class="tag wb">🏦 待付 ${num(w0.total, 4)} ${coin} · ${num(w0.pct, 0)}%</span>` : '') +
+      `</div>`);
+    out.push(...rs.map(rigCard));
+  }
+  return out.join('');
+}
 
 function render() {
   const f = S.fleet, t = f.total;
   $('k1').innerHTML = `${t.online}<small>/${f.rigs.length} 台</small>`;
-  $('k1m').textContent = f.rigs.length - t.online ? `${f.rigs.length - t.online} 台离线` : '全部在线';
+  $('k1m').textContent = (f.rigs.length - t.online ? `${f.rigs.length - t.online} 台离线` : '全部在线')
+    + (t.gamemode ? ` · 🎮 ${t.gamemode} 台让卡中` : '');
   $('k2').innerHTML = `${num(t.ths, 1)}<small>TH/s</small>`;
-  $('k2m').textContent = 'PRL pearlhash 实测';
+  // 口径跟着实际在用的矿池走：全在 Kryptex 就写 Kryptex，混池写「N 池实测」
+  const _pb = new Set();
+  f.rigs.forEach(r => {
+    const b = (r.wallet && r.wallet.pool_brand) || '';
+    if (b) _pb.add(b);
+  });
+  const _pn = { kryptex: 'Kryptex', pearlhash: 'PearlHash', luckypool: 'LuckyPool' };
+  const _pl = [..._pb];
+  $('k2m').textContent = 'PRL ' + (_pl.length === 0 ? '实测'
+    : _pl.length === 1 ? (_pn[_pl[0]] || _pl[0]) + ' 实测'
+      : `${_pl.length} 池实测`);
   $('k3').innerHTML = `${num(t.power / 1000, 2)}<small>kW</small>`;
   $('k3m').textContent = 'GPU 板功耗合计';
   $('k4').innerHTML = t.income ? `¥${num(t.income, 0)}` : '—';
-  $('k4m').textContent = t.income ? '按当前 PRL 收益率估算' : '等待收益数据同步';
+  $('k4m').textContent = t.income ? `均价 ${t.rate_avg_usdt || '—'} USDT/TH/s · 汇率 ${(t.cny_rate || 0).toFixed(2)}` : '等待收益数据同步';
 
-  $('rigs').innerHTML = f.rigs.map(rigCard).join('');
+  // ---- 矿池钱包真实余额（同一钱包被多台矿机共用只计一次）
+  const WM = f.rigs.map(r => r.wallet).filter(Boolean);
+  if (WM.length) {
+    const seen = new Set();
+    const uniq = WM.filter(w => {
+      if (!w.wallet) return false;
+      // 按「钱包 + 所在池」去重：同池只算一次；不同池的余额不互通，要各自计入
+      const k = (w.coin || '') + '|' + (w.wallet || '') + '|' + (w.pool_brand || '');
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    const coins = [...new Set(uniq.map(w => w.coin))];
+    // pending=钱包循环还没拉到数据（重启后首轮窗口），不给 0 误导
+    const ready = uniq.filter(w => w.total !== null && w.total !== undefined);
+    // 「该池不可查」不算拉取中——混池时别把 2 台珍珠hash 误报成 N 个钱包在拉
+    const pend = uniq.filter(w => w.pending === true).length;
+    if (!ready.length) {
+      // 全部钱包所在池都不提供余额 API 时，说清楚「不可查」而不是「拉取中」
+      const noApiAll = uniq.length && uniq.every(w => w.unpaid_supported === false);
+      const brands = [...new Set(uniq.map(w => w.pool_brand).filter(Boolean))];
+      $('kw').innerHTML = noApiAll ? '不可查' : '—';
+      $('kwm').textContent = noApiAll
+        ? `${brands.join('、') || '该池'} 无公开余额接口 · 收益自动打进钱包，明细看下方「实际收入」`
+        : '正在拉取链上数据…';
+    } else {
+      const tot = ready.reduce((s, w) => s + (w.total || 0), 0);
+      const uni = coins.length === 1 ? coins[0].toUpperCase() : 'MIX';
+      $('kw').innerHTML = `${num(tot, 4)}<small>${uni}</small>`;
+      const cf = ready.reduce((s, w) => s + (w.confirmed || 0), 0);
+      const uc = ready.reduce((s, w) => s + (w.unconfirmed || 0), 0);
+      // 各池待付小计：只在当前池显示真实余额；无公开 API 的池标「不可查」；
+      // 未在该池挖（没查过）的池不显示，避免「0.0000」误导
+      const wp = t.wallet_pools || {};
+      const up = Object.keys(wp).map(p => wp[p].unpaid_supported === true
+        ? `${esc(wp[p].name)} ${num(wp[p].unpaid || 0, 4)}`
+        : (wp[p].unpaid_supported === false ? `${esc(wp[p].name)}不可查` : null)
+      ).filter(Boolean);
+      $('kwm').textContent = `已确认 ${num(cf, 4)} · 确认中 ${num(uc, 4)}`
+        + (pend ? ` · ${pend} 个钱包拉取中` : '')
+        + (up.length ? ` · 待付 ${up.join(' / ')}` : '');
+    }
+  } else {
+    $('kw').innerHTML = '—';
+    $('kwm').textContent = '等待矿机上报钱包地址';
+  }
+
+  // ---- 收益第二排：矿池实收（payouts 真实打款）为主，算力估算为辅
+  const D = S.daily && S.daily.days ? S.daily.days : [];
+  const today = new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Shanghai' });
+  const past = D.filter(d => d.day < today);
+  const sumN = n => past.slice(0, n).reduce((s, d) => s + (d.cny || 0), 0);
+  const P = t.wallet_paid || {};
+  const RC = t.cny_rate || 0;
+  const pcny = v => `¥${num(v * RC, 0)}`;
+  const realCard = (id, im, paid, est, unit) => {
+    if (paid > 0) {
+      $(id).innerHTML = `${num(paid, 4)}<small>${unit || 'PRL'}</small>`;
+      $(im).textContent = `实收 ${pcny(paid)}`;
+    } else if (est > 0) {
+      $(id).innerHTML = `≈ ¥${num(est, 0)}`;
+      $(im).textContent = '暂无打款 · 按算力估算（攒满起付线才打款）';
+    } else {
+      $(id).innerHTML = '—';
+      $(im).textContent = '暂无收益数据';
+    }
+  };
+  realCard('k7', 'k7m', P.d30 || 0, sumN(30));
+
+  // ---- 今日实际收入（链上真实到账，按北京时间归日，币数口径）
+  const R = t.wallet_reward || {};
+  const rcoin = t.wallet_reward_coin || t.wallet_coin || 'PRL';
+  const hasWallet = (f.rigs || []).some(r => r.wallet);
+  const hasReward = (f.rigs || []).some(r => r.wallet && r.wallet.rewards);
+  const walletPending = (f.rigs || []).some(r => r.wallet && r.wallet.pending);
+  const td = D.find(d => d.day === today);
+  if (!hasWallet) {
+    $('kt').innerHTML = '—';
+    $('ktm').textContent = '等待矿机上报钱包地址';
+  } else if (walletPending && !(R.today || 0) > 0 && !hasReward) {
+    // 钱包早就上报了，只是中控首轮还没拉完链上数据——别说成「等待上报」
+    $('kt').innerHTML = '—';
+    $('ktm').textContent = '正在拉取链上数据…';
+  } else if ((R.today || 0) > 0) {
+    $('kt').innerHTML = `${num(R.today, 4)}<small>${esc(rcoin)}</small>`;
+    // 分池拆分（对齐 vminers 的 Kryptex/PearlHash/其它 口径）：多池时才显示
+    const wp = t.wallet_pools || {};
+    const parts = Object.keys(wp)
+      .filter(p => ((wp[p].reward || {}).today || 0) > 0)
+      .map(p => `${esc(wp[p].name)} ${num(wp[p].reward.today, 4)}`);
+    $('ktm').textContent = `≈ ¥${num(R.today * RC, 2)} · 昨日 ${num(R.yesterday || 0, 4)} · 近7日 ${num(R.d7 || 0, 4)} ${rcoin}`
+      + (parts.length > 1 ? `（${parts.join(' + ')}）` : '');
+  } else if (td && td.cny > 0) {
+    $('kt').innerHTML = `≈ ¥${num(td.cny, 0)}`;
+    $('ktm').textContent = hasReward
+      ? '矿池今日暂无收益记录 · 按算力估算（攒满起付线才打款）'
+      : '矿池收益曲线拉取失败 · 按算力估算';
+  } else {
+    $('kt').innerHTML = '—';
+    $('ktm').textContent = hasReward ? '今日暂无收益数据' : '矿池收益曲线拉取失败';
+  }
+
+  let gpus = 0, working = 0, standby = 0, offline = 0;
+  const kernels = new Set(), pools = new Set();
+  f.rigs.forEach(r => {
+    const s = r.snapshot || {}, m0 = (s.miners || [])[0] || {};
+    if (r.status === 'online') {
+      if (m0.alive) working++; else standby++;
+      gpus += (s.gpus || []).length;
+    } else offline++;
+    if (m0.type) kernels.add(m0.type);
+    if (m0.pool) pools.add(m0.pool.replace(/^stratum\+?(tcp|ssl):\/\//, '').split('/')[0]);
+  });
+  $('k8').innerHTML = `${gpus}<small> 张卡</small>`;
+  $('k8m').innerHTML = `<span style="color:var(--down)">${working}</span> 工作中 / <span style="color:#b26a00">${standby}</span> 待机 / <span style="color:var(--up)">${offline}</span> 离线`;
+
+  fillSelect('fKernel', kernels);
+  fillSelect('fPool', pools);
+
+  // ---- 矿机卡片（筛选 + 搜索）
+  const kv = $('fKernel').value, pv = $('fPool').value,
+        qv = ($('q').value || '').trim().toLowerCase(), onlyOff = $('fOffline').checked;
+  const shown = f.rigs.filter(r => {
+    const s = r.snapshot || {}, m0 = (s.miners || [])[0] || {};
+    if (onlyOff && r.status === 'online') return false;
+    if (qv && !r.name.toLowerCase().includes(qv)) return false;
+    if (kv && (m0.type || '') !== kv) return false;
+    if (pv && !(m0.pool || '').includes(pv)) return false;
+    return true;
+  });
+  $('rigs').innerHTML = renderRigs(shown);
+  $('rigCount').textContent = `${shown.length} / ${f.rigs.length} 台`;
   $('empty').style.display = f.rigs.length ? 'none' : 'block';
+  $('selCount').textContent = `已选 ${SEL.size} 台`;
+
+  // ---- 内核管理
+  const K = S.kernels;
+  if (K && K.catalog && Object.keys(K.catalog).length) {
+    $('kernelBox').style.display = 'block';
+    $('kernelChecked').textContent = K.checked
+      ? new Date(K.checked * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' 检查'
+      : '';
+    $('kernelList').innerHTML = Object.entries(K.catalog).map(([name, k]) => {
+      const cached = (K.cached || []).filter(c => c.file.startsWith(name + '-'));
+      const users = f.rigs.filter(r => {
+        const s = r.snapshot || {};
+        return s.kernel_ver && kernelShort(s.kernel) === name;
+      });
+      const stale = users.filter(r => (r.snapshot || {}).kernel_ver !== (k.version || ''));
+      const pct = users.length
+        ? `<span class="tag" style="background:${stale.length ? '#fff3d6' : '#e8f7ee'};color:${stale.length ? '#8a5b00' : '#1a7f47'}">${users.length - stale.length}/${users.length} 台已是最新</span>`
+        : '<span class="mut">暂无矿机上报该内核版本</span>';
+      return `<div class="kern-row">
+        <span class="ver">${esc(k.label || name)}</span>
+        <span class="tag">${esc(k.version || '?')}</span>
+        <span class="mut">${esc(k.file || '')}${k.size ? ' · ' + (k.size / 1048576).toFixed(1) + ' MB' : ''}</span>
+        <span class="tag">${cached.length ? 'NAS 已缓存' : '下发时现下'}</span>
+        ${pct}
+        <span style="flex:1"></span>
+        ${stale.length ? `<button class="btn mini" onclick="batchKernel('${esc(name)}')">⬆ 升级 ${stale.length} 台</button>` : ''}
+        <button class="btn mini" onclick="batchCmd('update_kernel')">⬇ 更新选中矿机</button>
+      </div>`;
+    }).join('');
+  }
+
+  // ---- 按天明细（估算）
+  // 链上真实到账的分池拆分（days_pool: {日期: {池: 金额}}），今日行 tooltip 用
+  const daysPool = (((f.rigs[0] || {}).wallet || {}).rewards || {}).days_pool || {};
+  const poolTip = day => {
+    const dp = daysPool[day] || {};
+    const ks = Object.keys(dp);
+    return ks.length > 1
+      ? '分池到账：' + ks.map(p => `${p} ${num(dp[p], 4)}`).join(' · ')
+      : '链上真实到账（币数）';
+  };
+  if (D.length) {
+    $('dailyBox').style.display = 'block';
+    $('dailyList').innerHTML = D.slice(0, 15).map(d => `
+      <div class="dayrow">
+        <div class="dhd"><span>${d.day}</span>
+          ${d.day === today && (t.wallet_reward || {}).today > 0 ? `<span class="inc" style="background:#eef4ff;color:#2563bf" title="${esc(poolTip(d.day))}">实际 ${num(t.wallet_reward.today, 4)} ${esc(t.wallet_reward_coin || 'PRL')}</span>` : ''}
+          ${d.paid ? `<span class="inc" title="矿池真实打款到账">实收 ${num(d.paid, 4)} PRL · ¥${num(d.paid_cny, 2)}</span>` : ''}
+          <span class="inc" style="background:transparent;color:var(--muted)" title="按当日算力×均价估算">≈ ¥${num(d.cny, 2)}</span>
+          <span style="font-weight:400;color:var(--muted);font-size:11.5px">${d.rigs.length} 台有算力记录</span></div>
+        <div class="rigs-mini">${d.rigs.map(r => `
+          <span class="rchip"><b>${esc(r.rig)}</b> ${num(r.ths, 1)} TH/s · ¥${num(r.cny, 2)}
+            ${Object.entries(r.pools || {}).map(([p, u]) => ' · ' + esc(p) + ' ¥' + num(u * (S.fleet.total.cny_rate || 7.1), 1)).join('')}</span>`).join('')}
+        </div>
+      </div>`).join('');
+  }
+
+  renderDownloads(S.downloads);
 
   const open = S.alerts.filter(a => !a.resolved);
   $('alertBox').style.display = S.alerts.length ? 'block' : 'none';
+  $('alertBox').classList.toggle('sev-high', open.some(a => a.level === 'crit'));
   $('alertCount').textContent = open.length ? `${open.length} 条未处理` : '无未处理';
+  $('alertFold').textContent = $('alertBox').classList.contains('collapsed') ? '展开' : '收起';
   $('alertList').innerHTML = S.alerts.slice(0, 12).map(a => `
     <div class="alert-row">
       <span class="sev ${a.level}">${a.level === 'crit' ? '严重' : a.level === 'warn' ? '警告' : '信息'}</span>
@@ -304,19 +1379,148 @@ function render() {
 
 async function load() {
   try {
-    const [f, a] = await Promise.all([api('/api/fleet'), api('/api/alerts')]);
+    const [f, a, dl, kn, dls, ps, mi] = await Promise.all([
+      api('/api/fleet'), api('/api/alerts'),
+      api('/api/daily?days=30').catch(() => null),
+      api('/api/kernels').catch(() => null),
+      api('/api/downloads').catch(() => null),
+      api('/api/pools').catch(() => null),
+      api('/api/auth/me').catch(() => null),
+    ]);
     S.fleet = f; S.alerts = a.alerts || [];
+    if (dl && dl.ok) S.daily = dl;
+    if (kn && kn.ok) S.kernels = kn;
+    if (dls && dls.ok) S.downloads = dls;
+    if (ps && ps.ok) S.pools = ps;
+    if (mi && mi.ok) { me = mi.user; renderMe(); applyCompactPref(); }
     $('authCard').style.display = 'none';
     $('main').style.display = 'block';
     $('errbar').style.display = 'none';
     render();
+    if (me && me.is_admin) await loadUsers();
   } catch (e) {
     if (e.message === 'unauthorized') return;
+    if (e.message === 'stale') return;   // 登录态已切换，这个响应作废
     $('errbar').style.display = 'block';
     $('errbar').textContent = '加载失败：' + e.message;
   }
 }
 
+/* ---------- 当前用户 ---------- */
+function renderMe() {
+  const el = $('meBox');
+  if (!el) return;
+  if (!me) { el.innerHTML = ''; return; }
+  el.innerHTML =
+    `<span class="tag">${esc(me.username || '')}${me.is_admin ? ' · 管理员' : ''}</span>` +
+    `<button class="btn mini" onclick="logout()">退出</button>`;
+  const ub = $('userMgmt');
+  if (ub) ub.style.display = me.is_admin ? 'block' : 'none';
+}
+
+/* ---------- 改名（远程改中控中的名字） ---------- */
+async function renameRig(rig, cur) {
+  const v = prompt(`修改「${rig}」在中控看板里显示的名字：\n\n（机器标识 ${rig} 不会改变；矿机端会静默保存新名字）`, cur || rig);
+  if (v === null) return;
+  const disp = String(v).trim();
+  if (!disp) { alert('显示名不能为空。'); return; }
+  if (disp.length > 32) { alert('显示名最长 32 个字符。'); return; }
+  if (disp === cur) return;
+  try {
+    await api('/api/rig_rename', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rig, display_name: disp }) });
+    await load();
+  } catch (e) {
+    alert('改名失败：' + e.message);
+  }
+}
+
+/* ---------- 管理员：用户管理 ---------- */
+async function loadUsers() {
+  const box = $('userList');
+  if (!box) return;
+  let d;
+  try { d = await api('/api/users'); } catch (e) { box.textContent = '加载失败：' + e.message; return; }
+  const rows = (d.users || []).map(u =>
+    `<tr><td>${esc(u.username)}${u.is_admin ? ' <span class="tag">管理员</span>' : ''}</td>` +
+    `<td>${u.rig_count}</td>` +
+    `<td>${u.status === 'active' ? '正常' : '已禁用'}</td>` +
+    `<td>${u.last_login_at ? new Date(u.last_login_at * 1000).toLocaleString('zh-CN') : '—'}</td></tr>`).join('');
+  box.innerHTML = `<table class="utab"><thead><tr><th>账号</th><th>矿机</th><th>状态</th><th>最近登录</th></tr></thead><tbody>${rows}</tbody></table>`;
+  S.users = d.users || [];
+}
+
+function selRig(name, on) {
+  on ? SEL.add(name) : SEL.delete(name);
+  $('selCount').textContent = `已选 ${SEL.size} 台`;
+}
+function selAll(on) {
+  SEL.clear();
+  if (on) (S.fleet ? S.fleet.rigs : []).forEach(r => SEL.add(r.name));
+  render();
+}
+async function batchCmd(cmd) {
+  const targets = Array.from(SEL);
+  if (!targets.length) { alert('请先勾选要操作的矿机（卡片左上角复选框，或点「全选」）。'); return; }
+  const tips = {
+    restart_miner: '批量重启选中矿机的矿工进程',
+    start_miner: '批量启动选中矿机挖矿',
+    stop_miner: '批量停止选中矿机挖矿',
+    gamemode_on: '批量开启游戏模式（检测到游戏进程时让卡）',
+    gamemode_off: '批量关闭游戏模式并恢复挖矿',
+    update_kernel: '从中控下载最新挖矿内核并重启矿工',
+    update_client: '把选中矿机的客户端升级到中控上的最新版本（矿机自下载、校验、替换后自动重启，约 30 秒）',
+  };
+  if (!confirm(`${tips[cmd] || cmd}\n\n目标（${targets.length} 台）：\n${targets.join('、')}`)) return;
+  let ok = 0, fail = 0;
+  for (const rig of targets) {
+    try {
+      await api('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rig, cmd }) });
+      ok++;
+    } catch (e) { fail++; }
+  }
+  alert(`命令 ${cmd} 已下发：成功 ${ok} 台${fail ? '，失败 ' + fail + ' 台' : ''}。矿机端将在轮询周期（≤30 秒）执行。`);
+}
+async function batchKernel(name) {
+  const item = ((S.kernels && S.kernels.catalog) || {})[name] || {};
+  const targets = (S.fleet ? S.fleet.rigs : []).filter(r => {
+    const s = r.snapshot || {};
+    const k = /bz/i.test(s.kernel || '') ? 'bzminer' : 'srbminer';
+    return k === name && (s.kernel_ver || '') !== (item.version || '');
+  }).map(r => r.name);
+  if (!targets.length) { alert('该内核下没有需要升级的矿机。'); return; }
+  if (!confirm(`把 ${targets.length} 台矿机升级到 ${item.label || name} ${item.version || ''}？\n\n${targets.join('、')}\n\n矿机端会：暂停矿工 → 从中控下载新内核 → 覆盖安装 → 自动重启挖矿，约 1-2 分钟。`)) return;
+  let ok = 0, fail = 0;
+  for (const rig of targets) {
+    try {
+      await api('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rig, cmd: 'update_kernel', arg: { version: item.version || '' } }) });
+      ok++;
+    } catch (e) { fail++; }
+  }
+  alert(`已下发 ${ok} 台${fail ? '，失败 ' + fail + ' 台' : ''}。矿机端 ≤30 秒内执行，结果可在告警与矿机卡片的内核版本标签上确认。`);
+  setTimeout(load, 45000);
+}
+async function checkKernels() {
+  try {
+    const k = await api('/api/kernel/check', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    if (k.ok) { S.kernels = k; render(); alert('已更新内核版本信息。'); }
+  } catch (e) { alert('检查失败：' + e.message); }
+}
+
+async function toggleGM(rig, curOn) {
+  const cmd = curOn ? 'gamemode_off' : 'gamemode_on';
+  const tip = curOn
+    ? `关闭「${rig}」的游戏模式？矿机端将立即恢复挖矿。`
+    : `开启「${rig}」的游戏模式？矿机端检测到游戏进程（刀塔2、绝地求生等预设名单，矿机端可补充自定义）时自动暂停挖矿让出显卡，游戏退出后自动恢复。`;
+  if (!confirm(tip)) return;
+  try {
+    await api('/api/command', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rig, cmd }) });
+    alert('命令已下发，矿机端将在下一个轮询周期执行（≤30 秒）。');
+  } catch (e) { alert('下发失败：' + e.message); }
+}
 async function restart(rig) {
   if (!confirm(`确定远程重启「${rig}」的矿工进程？\n将强杀矿工并按 start 脚本重新拉起，约 1 分钟恢复。`)) return;
   try {
@@ -329,10 +1533,248 @@ async function resolveAlert(id) {
   try { await api('/api/alerts/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id }) }); load(); } catch (e) { }
 }
+
+async function resetToken(rig) {
+  if (!confirm(`重置「${rig}」的接入码？\n\n适用场景：重装系统、更换客户端目录、新旧版本并存导致矿机端报 401。\n重置后矿机端下一次连接（上报/下载内核）会自动重新绑定，旧口令立即失效。`)) return;
+  const r = await api('/api/rig_reset_token', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ rig }) }).catch(e => ({ ok: false, error: (e && e.message) || String(e) }));
+  alert(r.ok ? `已重置「${rig}」的接入码，矿机端下次连接将自动重新绑定。` : `失败：${r.error || '未知错误'}`);
+  if (r.ok) load();
+}
+
+/* ---------- 矿池 / 内核配置（更换矿池、切换内核） ---------- */
+const KERNEL_META = {
+  "SRBMiner-MULTI": { key: "srbminer", dev: "1%", note: "多卡通用，Pearl 官方推荐内核" },
+  "BzMiner": { key: "bzminer", dev: "2%", note: "低功耗优先，单卡省电；pearl 开发费 2%" },
+  "WildRig": { key: "wildrig", dev: "0%~2%", note: "支持 AMD/NVIDIA/Intel；pearlhash 对 RTX 30/40/50 系持续优化，连 pearlhash.xyz 池 0 开发费" },
+};
+const CFG = { mode: "single", rigs: [], brand: "kryptex", node: "", kernel: "SRBMiner-MULTI" };
+
+function poolName(url) {
+  if (!url) return "";
+  const brands = (S.pools && S.pools.brands) || [];
+  for (const b of brands) for (const n of (b.nodes || [])) {
+    if (n.url === url) return `${b.name} · ${n.label}`;
+  }
+  return url.replace(/^stratum\+?(tcp|ssl):\/\//, "");
+}
+
+function openCfg(rig) {
+  if (!S.pools) { alert("矿池目录还没加载好，请稍候再试。"); return; }
+  CFG.mode = "single"; CFG.rigs = [rig];
+  const r = (S.fleet ? S.fleet.rigs : []).find(x => x.name === rig) || {};
+  const curPool = r.pool_url || "";
+  const curKernel = (r.snapshot || {}).kernel || "";
+  $("cfgSub").textContent = "· " + rig;
+  $("cfgCur").innerHTML = (curPool || curKernel)
+    ? `当前配置：矿池 <b>${esc(poolName(curPool) || "未知")}</b> · 内核 <b>${esc(curKernel || "未知")}</b>`
+    : "这台矿机还没上报过配置（可能不在线，或客户端版本较旧不上报矿池地址）。";
+  let hitBrand = null;
+  for (const b of S.pools.brands || []) {
+    if ((b.nodes || []).some(n => n.url === curPool)) { hitBrand = b; break; }
+  }
+  cfgFillBrands(hitBrand ? hitBrand.id : "kryptex", curPool);
+  cfgFillKernels(curKernel);
+  $("cfgMask").style.display = "flex";
+}
+
+function openCfgBatch() {
+  const targets = Array.from(SEL);
+  if (!targets.length) { alert("请先勾选要操作的矿机（卡片左上角复选框，或点「全选」）。"); return; }
+  if (!S.pools) { alert("矿池目录还没加载好，请稍候再试。"); return; }
+  CFG.mode = "batch"; CFG.rigs = targets;
+  $("cfgSub").textContent = `· 已选 ${targets.length} 台`;
+  $("cfgCur").innerHTML = `将应用到 <b>${targets.length}</b> 台矿机：${esc(targets.join("、"))}`;
+  cfgFillBrands("kryptex", "");
+  cfgFillKernels("");
+  $("cfgMask").style.display = "flex";
+}
+
+function closeCfg() { $("cfgMask").style.display = "none"; }
+
+function cfgFillBrands(bid, curUrl) {
+  const sel = $("cfgBrand");
+  sel.innerHTML = (S.pools.brands || []).map(b =>
+    `<option value="${b.id}">${esc(b.name)}（${esc(b.fee)}）</option>`).join("")
+    + `<option value="custom">${esc(S.pools.custom.name)}</option>`;
+  CFG.brand = bid;
+  sel.value = bid;
+  cfgFillNodes(bid, curUrl);
+}
+
+function cfgFillNodes(bid, curUrl) {
+  const b = (S.pools.brands || []).find(x => x.id === bid);
+  const sel = $("cfgNode");
+  if (!b) {  // 自定义矿池：手填地址
+    $("cfgCustomRow").style.display = "flex";
+    sel.style.display = "none";
+    $("cfgCustomUrl").value = curUrl || "";
+    CFG.node = curUrl || "";
+    $("cfgPoolNote").textContent = S.pools.custom.hint + "；端口以矿池官网为准（如 Kryptex 7048、K1Pool 3360）。";
+    return;
+  }
+  $("cfgCustomRow").style.display = "none";
+  sel.style.display = "";
+  sel.innerHTML = (b.nodes || []).map(n =>
+    `<option value="${esc(n.url)}">${esc(n.label)} · ${esc(n.region_tag)} · ${esc(n.geo)}</option>`).join("");
+  const has = (b.nodes || []).some(n => n.url === curUrl);
+  CFG.node = has ? curUrl : (b.nodes[0] ? b.nodes[0].url : "");
+  sel.value = CFG.node;
+  $("cfgPoolNote").textContent = (b.note || "") + (b.fee ? ` · 费率 ${b.fee}` : "");
+}
+
+function cfgBrandChange() {
+  CFG.brand = $("cfgBrand").value;
+  cfgFillNodes(CFG.brand, "");
+}
+function cfgNodeChange() { CFG.node = $("cfgNode").value; }
+function cfgCustomInput() { CFG.node = $("cfgCustomUrl").value.trim(); }
+
+function cfgFillKernels(curKernel) {
+  const cat = (S.kernels && S.kernels.catalog) || {};
+  if (!KERNEL_META[curKernel]) curKernel = "SRBMiner-MULTI";
+  CFG.kernel = curKernel;
+  $("cfgKernels").innerHTML = Object.keys(KERNEL_META).map(k => {
+    const m = KERNEL_META[k];
+    const v = (cat[m.key] || {}).version || "";
+    return `<div class="cfg-kern ${k === curKernel ? "on" : ""}" data-k="${k}" onclick="cfgPickKernel('${k}')">
+      <b>${esc(k)}${v ? ` <small style="color:var(--muted);font-weight:500">v${esc(v)}</small>` : ""}</b>
+      <span>开发费 ${esc(m.dev)} · ${esc(m.note)}</span></div>`;
+  }).join("");
+  cfgKernelNote();
+}
+
+function cfgKernelNote() {
+  const m = KERNEL_META[CFG.kernel];
+  $("cfgKernelNote").textContent =
+    `已选 ${CFG.kernel}：开发费 ${m.dev}，${m.note}。矿机端没有该内核时会自动从中控下载。`;
+}
+
+function cfgPickKernel(k) {
+  if (!KERNEL_META[k]) return;
+  CFG.kernel = k;
+  document.querySelectorAll(".cfg-kern").forEach(el =>
+    el.classList.toggle("on", el.dataset.k === k));
+  cfgKernelNote();
+}
+
+async function submitCfg() {
+  const poolUrl = (CFG.brand === "custom" ? $("cfgCustomUrl").value.trim() : CFG.node);
+  if (!poolUrl) { alert("请先选择或填写矿池地址。"); return; }
+  if (!/^stratum\+(tcp|ssl):\/\/[A-Za-z0-9._\-]+:\d{1,5}$/.test(poolUrl)) {
+    alert("矿池地址格式应为 stratum+tcp://主机:端口"); return;
+  }
+  const kernel = CFG.kernel;
+  const targets = CFG.rigs;
+  const label = CFG.mode === "single" ? `「${targets[0]}」` : `${targets.length} 台矿机`;
+  if (!confirm(`给 ${label} 下发配置？\n\n矿池：${poolName(poolUrl) || poolUrl}\n内核：${kernel}\n\n` +
+    `矿机端将在 ≤30 秒内执行：自动下载缺失内核 → 写入配置 → 重启矿工（约 1 分钟恢复）。`)) return;
+  let okPool = 0, okKernel = 0, skip = 0, fail = 0;
+  for (const rig of targets) {
+    try {
+      const r = ((S.fleet && S.fleet.rigs) || []).find(x => x.name === rig) || {};
+      const curPool = r.pool_url || "";
+      const curKernel = (r.snapshot || {}).kernel || "";
+      if (poolUrl !== curPool) {
+        await api("/api/command", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rig, cmd: "set_pool", arg: { pool_url: poolUrl } }) });
+        okPool++;
+      } else { skip++; }
+      if (kernel !== curKernel) {
+        await api("/api/command", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ rig, cmd: "set_kernel", arg: { kernel } }) });
+        okKernel++;
+      }
+    } catch (e) { fail++; }
+  }
+  closeCfg();
+  alert(`配置已下发：换矿池 ${okPool} 台、切内核 ${okKernel} 台` +
+    `${skip ? `、${skip} 台矿池相同已跳过` : ""}${fail ? `、失败 ${fail} 台` : ""}。\n` +
+    `矿机端 ≤30 秒内执行并重启矿工，约 1 分钟恢复；结果可在矿机卡片与告警中确认。`);
+  setTimeout(load, 45000);
+}
+
+/* 客户端安装包：中控直接分发矿机端 exe / 安卓 apk */
+function renderDownloads(dl) {
+  const items = (dl && dl.items) || [];
+  $('dlBox').style.display = items.length ? 'block' : 'none';
+  if (!items.length) return;
+  const ready = items.filter(i => i.ready);
+  $('dlHint').textContent = ready.length === items.length
+    ? `${items.length} 个安装包 · ${(dl.total / 1048576).toFixed(1)} MB`
+    : `${ready.length}/${items.length} 已同步`;
+  $('dlList').innerHTML = items.map(i => i.ready ? `
+    <div class="dl-card">
+      <div class="dl-ic">${i.icon}</div>
+      <div class="dl-main">
+        <div class="dl-t">${esc(i.title)}${i.version ? ` <span class="tag" style="background:#eef4ff;color:#2563eb;font-weight:600;vertical-align:middle" title="中控当前分发的版本号；矿机端自更新以 /api/client_latest 的版本与 SHA256 为准">v${esc(i.version)}</span>` : (i.key === 'exe' ? ' <span class="tag" style="background:#fff3d6;color:#8a5b00;vertical-align:middle" title="client_release.json 里没有版本号，请随安装包一并更新">版本未登记</span>' : '')}</div>
+        <div class="dl-p">${esc(i.plat)}</div>
+        <div class="dl-d">${esc(i.desc)}</div>
+        <div class="dl-meta">
+          <span>${(i.size / 1048576).toFixed(1)} MB</span>
+          <span>${new Date(i.mtime * 1000).toLocaleDateString('zh-CN')} 更新</span>
+          <span class="sha" title="SHA256: ${esc(i.sha256)}">${esc((i.sha256 || '').slice(0, 10))}…</span>
+        </div>
+        <div class="dl-act">
+          <a class="btn primary mini" href="${i.url}" download="${esc(i.name)}">⬇ 下载</a>
+          <button class="btn mini" onclick="copyDl('${i.url}', this)">复制链接</button>
+        </div>
+      </div>
+    </div>` : `
+    <div class="dl-card off">
+      <div class="dl-ic">${i.icon}</div>
+      <div class="dl-main">
+        <div class="dl-t">${esc(i.title)}</div>
+        <div class="dl-p">${esc(i.plat)}</div>
+        <div class="dl-d">安装包还没同步到中控 —— 在 NAS 的 <code>data/downloads/${esc(i.name)}</code>
+          放好文件后自动出现。</div>
+      </div>
+    </div>`).join('');
+}
+
+function copyDl(url, btn) {
+  const full = location.origin + url;
+  const done = () => {
+    const t = btn.textContent;
+    btn.textContent = '已复制 ✓';
+    setTimeout(() => { btn.textContent = t; }, 1600);
+  };
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(full).then(done).catch(() => prompt('复制这个链接：', full));
+  } else {
+    prompt('复制这个链接：', full);
+  }
+}
+
+/* 面板折叠：告警/内核/明细都可以收起来，省出屏幕看矿机 */
+function toggleBox(id) {
+  const box = $(id);
+  if (!box) return;
+  const collapsed = box.classList.toggle('collapsed');
+  const fold = $(id.replace('Box', 'Fold'));
+  if (fold) fold.textContent = collapsed ? '展开' : '收起';
+  try { localStorage.setItem('mr_fold_' + id, collapsed ? '1' : '0'); } catch (e) { }
+}
+(function restoreFold() {
+  ['kernelBox', 'dailyBox', 'alertBox', 'dlBox'].forEach(id => {
+    let v = null;
+    try { v = localStorage.getItem('mr_fold_' + id); } catch (e) { }
+    if (v === null) return;
+    const box = $(id);
+    if (!box) return;
+    if (v === '1') box.classList.add('collapsed');
+    const fold = $(id.replace('Box', 'Fold'));
+    if (fold) fold.textContent = v === '1' ? '展开' : '收起';
+  });
+})();
 $('btnRefresh').onclick = load;
 
-if (adminToken) load(); else showAuth();
-setInterval(() => { if (adminToken && S.fleet) load(); }, 15000);
+if (userToken || adminToken) load(); else showAuth();
+/* 轮询刷新：只在已登录且已加载出数据时跑。
+   未登录时不能跑 —— 否则会拿空 token 请求 → 401 → 反复跳回登录页。 */
+setInterval(() => {
+  if ((userToken || adminToken) && S.fleet) load();
+}, 15000);
 </script>
 </body>
 </html>
