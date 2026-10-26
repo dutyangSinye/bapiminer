@@ -51,6 +51,7 @@ import re
 import secrets
 import sqlite3
 import sys
+import glob
 import threading
 import time
 import traceback
@@ -396,6 +397,8 @@ CREATE TABLE IF NOT EXISTS login_fail(
 
 PBKDF2_ROUNDS = 200_000
 SESSION_TTL = 7 * 86400          # 中控 Web 会话 7 天
+REBIND_AFTER_OFFLINE_SEC = int(os.environ.get("REBIND_AFTER_OFFLINE_SEC", "300"))
+                            # 矿机离线超过这么久（秒）才允许用新接入码重新绑定
 LOGIN_MAX_FAIL = 5               # 连错 5 次锁 10 分钟
 LOGIN_LOCK_SEC = 600
 RESERVED_USERNAMES = {"admin", "root", "system", "administrator", "superuser"}
@@ -1583,11 +1586,30 @@ def rig_auth_check(name, tk, source=""):
     if not name or not tk:
         return "auth failed"
     c = db()
-    row = c.execute("SELECT token FROM rigs WHERE name=?", (name,)).fetchone()
+    row = c.execute("SELECT token, last_seen FROM rigs WHERE name=?", (name,)).fetchone()
     if row is None:
         return "auth failed"
     stored = row["token"] or ""
     if stored and stored != tk:
+        # 长时间没上报 + 接入码变了 → 允许重新绑定。
+        # 典型来源：客户端目录被复制到别的机器、重装系统、换客户端目录，
+        # 这些情况下客户端会生成新接入码，而中控还记着旧的，
+        # 结果是内核下载与上报全部 401、引擎每秒重试，机器永远开不了挖。
+        # 在阈值内仍然严格拒绝（Token 是矿机身份，不能随便被顶替）。
+        try:
+            last = float(row["last_seen"] or 0)
+        except (IndexError, KeyError, TypeError, ValueError):
+            last = 0.0
+        if time.time() - last > REBIND_AFTER_OFFLINE_SEC:
+            with _db_lock:
+                c.execute("UPDATE rigs SET token=?, last_seen=? WHERE name=?",
+                          (tk, time.time(), name))
+                c.commit()
+            add_alert(name, "info", "rig_rebind",
+                      "矿机 %s 离线 %d 分钟后换了接入码，已自动重新绑定"
+                      % (name, int((time.time() - last) / 60)))
+            print("[rig] 自动重新绑定（离线超时换码）：%s" % name, flush=True)
+            return None
         return "token mismatch"
     if not stored:
         with _db_lock:
@@ -2424,6 +2446,16 @@ def kernel_download(name):
     if os.path.exists(dest) and os.path.getsize(dest) > 1_000_000:
         return dest, None
     err = None
+    # 先用「已经缓存好的旧版本」兜底：源站不可达/没下完时，
+    # 让矿机拿到能跑的内核，而不是直接报错开不了挖。
+    def _cached_fallback():
+        cands = sorted(glob.glob(os.path.join(KERNEL_DIR, "%s-*.zip" % name)),
+                       key=os.path.getmtime, reverse=True)
+        for p in cands:
+            if os.path.getsize(p) > 1_000_000:
+                return p
+        return None
+
     for m in GH_MIRRORS:
         url = m + meta["url"] if m else meta["url"]
         try:
@@ -2444,6 +2476,10 @@ def kernel_download(name):
         except Exception as e:  # noqa: BLE001
             err = e
             print("[kernel] 源失败 %s: %s" % (url[:70] or "direct", e))
+    fb = _cached_fallback()
+    if fb:
+        print("[kernel] 源站失败，改用已缓存版本 %s 兜底" % os.path.basename(fb), flush=True)
+        return fb, None
     return None, "所有下载源均失败: %s" % err
 
 
@@ -2908,19 +2944,12 @@ class Handler(BaseHTTPRequestHandler):
             c = db()
             row = c.execute("SELECT token FROM rigs WHERE name=?", (rig_name,)).fetchone() if rig_name else None
             if row is not None:
-                stored = row["token"] or ""
-                if stored and stored != tk:
-                    return self._json({"ok": False, "error": "token mismatch"}, 401)
-                if not stored:
-                    # 接入码被管理员重置过 → 本次下载自动重新绑定
-                    if not tk:
-                        return self._json({"ok": False, "error": "auth failed"}, 401)
-                    with _db_lock:
-                        c.execute("UPDATE rigs SET token=?, last_seen=? WHERE name=?",
-                                  (tk, time.time(), rig_name))
-                        c.commit()
-                    add_alert(rig_name, "info", "rig_rebind", "矿机 %s 已重新绑定接入码（内核下载认领）" % rig_name)
-                    print("[rig] 重新绑定接入码：%s（内核下载认领）" % rig_name)
+                # ★ 统一走 rig_auth_check：它包含「离线超时 + 接入码变了 → 自动重绑定」
+                #   的容错。这里以前自己实现了一套严格比较，绕过了该策略，
+                #   结果换过 token 的机器内核下载永远 401、引擎每秒重试。
+                err = rig_auth_check(rig_name, tk, "内核下载")
+                if err:
+                    return self._json({"ok": False, "error": err}, 401)
             if row is None:
                 # 未注册矿机下载内核时自动注册（与首次上报同规则）
                 if not rig_name or not tk:
