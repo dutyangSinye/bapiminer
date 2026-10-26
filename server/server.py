@@ -1727,6 +1727,41 @@ def sweep_loop():
 
 # ---------------------------------------------------------------- 聚合
 
+# ---- 看板迷你曲线：固定窗口 + 等间隔抽点 ----
+HIST_WINDOW_H = 12        # 曲线窗口（小时）
+HIST_STEP_S = 600         # 抽点粒度（秒）→ 12h / 10min = 73 个点
+
+
+def rig_history_series(rig, window_h=None, step=None):
+    """返回固定窗口的等间隔序列；没有采样的桶为 None（前端据此断线）。
+
+    为什么必须在服务端抽点：矿机端每 10 秒上报一次，12 小时就是 4300 个点，
+    11 台机整个 /api/fleet 会到 2.3MB；而曲线只有 350px 宽，挤在一起后
+    任何一次短暂停顿都会变成一根满高竖线（看起来像算力突然掉到底）。
+    抽成 10 分钟均值后，短暂抖动被平均掉，真正的停机仍会留下缺口。
+    """
+    window_h = HIST_WINDOW_H if window_h is None else window_h
+    step = HIST_STEP_S if step is None else step
+    now = time.time()
+    start = now - window_h * 3600
+    c = db()
+    rows = c.execute(
+        "SELECT CAST(ts / ? AS INTEGER) AS b, AVG(ths) AS ths, AVG(power) AS power, "
+        "AVG(temp) AS temp FROM samples WHERE rig=? AND ts>? GROUP BY b ORDER BY b",
+        (step, rig, start)).fetchall()
+    got = {int(x["b"]): x for x in rows}
+    out = []
+    for b in range(int(start // step), int(now // step) + 1):
+        x = got.get(b)
+        out.append({
+            "ts": b * step,
+            "ths": (round(x["ths"], 2) if x is not None and x["ths"] is not None else None),
+            "power": (round(x["power"], 1) if x is not None and x["power"] is not None else None),
+            "temp": (round(x["temp"], 1) if x is not None and x["temp"] is not None else None),
+        })
+    return out
+
+
 def fleet_payload(auth=None):
     """全群聚合。auth 传入时按可见矿机集合过滤（多用户隔离）。
 
@@ -1758,10 +1793,7 @@ def fleet_payload(auth=None):
                 total["ths"] += snap.get("ths") or 0
                 total["power"] += snap.get("power") or 0
                 total["income"] += snap.get("income_cny_day") or 0
-        # 近 12 小时采样（用于迷你曲线，10 分钟粒度抽点）
-        hist = c.execute(
-            "SELECT ts,ths,power,temp FROM samples WHERE rig=? AND ts>? ORDER BY ts",
-            (r["name"], time.time() - 12 * 3600)).fetchall()
+        hist = rig_history_series(r["name"])
         out.append({
             "name": r["name"], "status": r["status"],
             "display_name": (r["display_name"] if "display_name" in r.keys() else "") or r["name"],
@@ -1833,7 +1865,7 @@ def fleet_payload(auth=None):
     total["ths"] = round(total["ths"], 1)
     total["power"] = round(total["power"], 0)
     total["income"] = round(total["income"], 0)
-    return {"ok": True, "now": now_cn(), "total": total, "rigs": out}
+    return {"ok": True, "now": now_cn(), "total": total, "rigs": out, "history_hours": HIST_WINDOW_H}
 
 
 def history_payload(rig, hours):
