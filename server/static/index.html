@@ -372,6 +372,7 @@ header{position:sticky;top:0;z-index:60;
 .rig-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-height:18px;margin-bottom:9px}
 .rig-meta:empty{display:none}
 .rig-meta .tag{line-height:15px}
+.rig-meta .iptag{font-variant-numeric:tabular-nums;letter-spacing:.2px}
 /* 徽标行（标题第二行）
    ★ 原来写死 min-height:50px 来「兜底两行高度」，但徽标通常只有一行 ——
      于是每张卡顶部都空出约 30px 死白（用户反馈「高度有问题」）。
@@ -1388,8 +1389,14 @@ function rigCard(r) {
       // 元信息行只在有内容时渲染，避免个人视角出现空白行。
       // ★ 冲突徽标不在这里重复 —— 它由明细区的 rig-tags 承载，
       //   两处都画会出现两个「⚠ 其他矿工 1」，红色告警翻倍反而降低信噪比。
+      // 管理员额外看到：本机 IP + 归属地（个人视角不展示，避免暴露网络信息）
+      const ipTag = (me && me.is_admin && r.ip)
+        ? `<span class="tag mid iptag" title="最近一次上报的来源 IP；归属地由 IP 库解析，可能有偏差">`
+          + esc(r.ip) + (r.geo ? ' · ' + esc(r.geo) : '') + `</span>`
+        : '';
       const bits = [
         ownerTag,
+        ipTag,
         (r.display_name && r.display_name !== r.name)
           ? `<span class="tag mid" title="机器标识（不可改）：${nm}">${nm}</span>` : '',
       ].filter(Boolean);

@@ -373,6 +373,13 @@ CREATE TABLE IF NOT EXISTS login_fail(
             print("[db] rigs 表新增 %s 列" % col)
         except Exception:  # noqa: BLE001
             pass  # 列已存在
+    # 矿机最近一次上报的来源 IP（卡片上显示 IP + 归属地）
+    try:
+        c.execute("ALTER TABLE rigs ADD COLUMN last_ip TEXT DEFAULT ''")
+        c.commit()
+        print("[db] rigs 表新增 last_ip 列")
+    except Exception:  # noqa: BLE001
+        pass  # 列已存在
     # 存量矿机 display_name 回填为 name（显示名与现状一致，不改机器标识）
     c.execute("UPDATE rigs SET display_name=name WHERE display_name IS NULL OR display_name=''")
     c.commit()
@@ -1577,7 +1584,122 @@ def rig_auth_check(name, tk, source=""):
     return None
 
 
-def handle_report(payload):
+# ---- 矿机来源 IP 与归属地 ----
+GEO_FILE = os.path.join(DATA_DIR, "ip_geo.json")
+GEO_TTL = 7 * 86400            # 同一 IP 的归属地缓存 7 天（运营商换段很慢）
+_geo_cache = {}                # ip -> {"geo": str, "ts": float}
+_geo_pending = set()           # 正在后台解析的 IP，避免重复打第三方接口
+_geo_lock = threading.Lock()
+
+
+def _is_private_ip(ip):
+    try:
+        p = ip.split(".")
+        if len(p) != 4:
+            return False
+        a, b = int(p[0]), int(p[1])
+        return (a == 10 or a == 127 or (a == 192 and b == 168)
+                or (a == 172 and 16 <= b <= 31) or a == 0)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _geo_http_get(url, timeout=6, encoding="utf-8"):
+    req = urllib.request.Request(url, headers={"User-Agent": "bapiminer-server/1.0"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read().decode(encoding, "replace")
+
+
+def _lookup_geo(ip):
+    """查 IP 归属地。优先国内可用的 pconline，失败再用 ip-api 兜底。"""
+    try:
+        d = json.loads(_geo_http_get(
+            "https://whois.pconline.com.cn/ipJson.jsp?json=true&ip=" + ip,
+            timeout=6, encoding="gbk"))
+        pro = str(d.get("pro") or "").strip()
+        city = str(d.get("city") or "").strip()
+        txt = " ".join(x for x in (pro, city) if x)
+        if txt:
+            return txt[:40]
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        d = json.loads(_geo_http_get(
+            "http://ip-api.com/json/%s?lang=zh-CN&fields=status,country,regionName,city" % ip))
+        if d.get("status") == "success":
+            txt = " ".join(str(x) for x in (d.get("country"), d.get("regionName"), d.get("city")) if x)
+            if txt:
+                return txt[:40]
+    except Exception:  # noqa: BLE001
+        pass
+    return ""
+
+
+def _save_geo_cache():
+    try:
+        tmp = GEO_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(_geo_cache, f, ensure_ascii=False)
+        os.replace(tmp, GEO_FILE)
+    except OSError:
+        pass
+
+
+def _load_geo_cache():
+    global _geo_cache
+    try:
+        with open(GEO_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, dict):
+            _geo_cache = {k: v for k, v in d.items() if isinstance(v, dict)}
+    except (OSError, ValueError):
+        _geo_cache = {}
+
+
+def _geo_worker(ip):
+    try:
+        geo = _lookup_geo(ip)
+        if geo:
+            with _geo_lock:
+                _geo_cache[ip] = {"geo": geo, "ts": time.time()}
+            _save_geo_cache()
+            print("[geo] %s -> %s" % (ip, geo))
+    finally:
+        with _geo_lock:
+            _geo_pending.discard(ip)
+
+
+def ip_geo_async(ip):
+    """登记一次后台归属地解析（不阻塞上报）。"""
+    if not ip or _is_private_ip(ip):
+        return
+    with _geo_lock:
+        hit = _geo_cache.get(ip)
+        if hit and time.time() - float(hit.get("ts") or 0) < GEO_TTL:
+            return
+        if ip in _geo_pending:
+            return
+        _geo_pending.add(ip)
+    threading.Thread(target=_geo_worker, args=(ip,), daemon=True).start()
+
+
+def ip_geo_of(ip):
+    """只读缓存，不触发网络请求（看板刷新不能等第三方接口）。"""
+    if not ip:
+        return ""
+    if _is_private_ip(ip):
+        return "内网"
+    with _geo_lock:
+        hit = _geo_cache.get(ip)
+    if not hit:
+        return ""
+    if time.time() - float(hit.get("ts") or 0) > GEO_TTL:
+        return str(hit.get("geo") or "")
+    return str(hit.get("geo") or "")
+
+
+
+def handle_report(payload, client_ip=""):
     name = str(payload.get("name") or "").strip()
     token = str(payload.get("token") or "").strip()
     if not name or not token:
@@ -1656,19 +1778,22 @@ def handle_report(payload):
             "wallet=CASE WHEN ?<>'' THEN ? ELSE wallet END, "
             "client_version=CASE WHEN ?<>'' THEN ? ELSE client_version END, "
             "pool_url=CASE WHEN ?<>'' THEN ? ELSE pool_url END, "
-            "display_name=CASE WHEN ?<>'' THEN ? ELSE display_name END WHERE name=?",
+            "display_name=CASE WHEN ?<>'' THEN ? ELSE display_name END, "
+            "last_ip=CASE WHEN ?<>'' THEN ? ELSE last_ip END WHERE name=?",
             (time.time(), json.dumps(snap, ensure_ascii=False), gm,
              str(payload.get("wallet") or "").strip(), str(payload.get("wallet") or "").strip(),
              str(payload.get("client_version") or "").strip(),
              str(payload.get("client_version") or "").strip(),
              str(payload.get("pool_url") or "").strip(),
              str(payload.get("pool_url") or "").strip(),
-             disp, disp, name))
+             disp, disp, client_ip or "", client_ip or "", name))
         c.execute(
             "INSERT INTO samples(rig,ts,ths,power,temp,fan,accepted,rejected,uptime,pool) VALUES(?,?,?,?,?,?,?,?,?,?)",
             (name, time.time(), ths, power, temp, fan, accepted, rejected, uptime,
              (miners[0].get("pool") if miners else "") or ""))
         c.commit()
+    if client_ip:
+        ip_geo_async(client_ip)
 
     # 游戏模式进出告警（info 级，退出自动消除）
     if gm and not old_gm:
@@ -1807,6 +1932,8 @@ def fleet_payload(auth=None):
             "pool_url": (r["pool_url"] if "pool_url" in r.keys()
                          else "") or (snap or {}).get("pool_url") or "",
             "wallet": wallet_for(r["name"]) or wallet_stub(r),
+            "ip": (r["last_ip"] if "last_ip" in r.keys() else "") or "",
+            "geo": ip_geo_of((r["last_ip"] if "last_ip" in r.keys() else "") or ""),
             "snapshot": snap, "history": [dict(h) for h in hist],
         })
     # 同一钱包可能被多台矿机共用（各自上报同一地址），两套口径各算各的：
@@ -3064,7 +3191,7 @@ class Handler(BaseHTTPRequestHandler):
             body = self._read_json()
             if "__error__" in body:
                 return self._json({"ok": False, "error": body["__error__"]}, 400)
-            rep = handle_report(body)
+            rep = handle_report(body, self._client_ip())
             # 接入码不匹配用真实 401，便于矿机端识别并给出明确指引
             if not rep.get("ok") and "mismatch" in str(rep.get("error") or ""):
                 return self._json(rep, 401)
