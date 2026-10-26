@@ -38,8 +38,59 @@ LOG_FILE = os.path.join(BASE, "client.log")
 # 于是双击 exe 成了唯一能回到界面的入口 —— 老逻辑只会弹「已在运行」的模态框。
 SHOW_SIGNAL = os.path.join(BASE, ".show_window")
 
+
+def machine_fingerprint():
+    """本机指纹（16 hex）。用来识别「这份配置是从别的机器复制过来的」。
+
+    Windows 上用 HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid —— 装机时生成、
+    重装系统才变，正是我们要的粒度；拿不到就退回主机名。
+    """
+    parts = [socket.gethostname().lower()]
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SOFTWARE\Microsoft\Cryptography") as k:
+            guid, _ = winreg.QueryValueEx(k, "MachineGuid")
+        parts.append(str(guid))
+    except Exception:  # noqa: BLE001
+        parts.append(os.environ.get("COMPUTERNAME", ""))
+    return hashlib.sha256("|".join(parts).encode("utf-8")).hexdigest()[:16]
+
+
+def ensure_machine_identity(cfg):
+    """配置若来自另一台机器，就地重置成本机身份；返回 True 表示做了重置。
+
+    为什么必须重置：中控按「机器名 + 接入码」认机器。复制安装会把别人的
+    机器名和接入码一起带过来，于是这台机器要么顶替别人的身份上报（两台机器
+    互相打架），要么在删了重下之后与本机旧条目对不上、永远 401。
+    """
+    fp = machine_fingerprint()
+    copied = bool(cfg.get("machine_id")) and str(cfg["machine_id"]) != fp
+    if copied:
+        cfg["token"] = ""
+        cfg["rig_name"] = socket.gethostname().lower()[:20]
+        cfg["display_name"] = ""
+        cfg["rig_bound"] = False
+        cfg["user_id"] = 0
+        cfg["username"] = ""
+        cfg["user_token"] = ""
+    cfg["machine_id"] = fp
+    return copied
+
+
+def save_config(cfg):
+    """原子写配置（先写 .tmp 再替换），失败只返回 False。"""
+    try:
+        tmp = CONFIG_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(cfg, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, CONFIG_FILE)
+        return True
+    except OSError:
+        return False
+
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.2"
+CLIENT_VERSION = "1.13.0.3"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -2193,6 +2244,48 @@ class MiningEngine:
         except Exception as e:  # noqa: BLE001
             log_write("配置落盘失败: %s" % e)
 
+    def _heal_identity(self, gap=90.0):
+        """401 自愈：自动换接入码重新注册本机身份。
+
+        中控按「机器名 + 接入码」认机器，令牌不匹配直接 401。常见来源：
+        把客户端整个目录复制到另一台机器、重装系统、换客户端目录。
+
+        策略（不再要求用户去中控点「重置接入码」）：
+          第 1 次 —— 只换接入码，名字不变。中控执行过重置时立刻恢复，
+                     也不会在看板上多出一台机器。
+          第 2 次起 —— 名字确实被另一台在役机器占着，加短后缀重新注册，
+                     保证一定能上报成功。
+        """
+        now = time.time()
+        if now - getattr(self, "_heal_ts", 0.0) < gap:
+            return False
+        tries = getattr(self, "_heal_n", 0)
+        self._heal_ts = now
+        self._heal_n = tries + 1
+
+        old_name = str(self.cfg.get("rig_name") or socket.gethostname().lower())
+        base = old_name[:20]
+        name = base if tries == 0 else ("%s-%s" % (base[:15], os.urandom(2).hex()))
+        token = "rig-" + os.urandom(8).hex()
+        old_disp = str(self.cfg.get("display_name") or "")
+        self.cfg["rig_name"] = name
+        self.cfg["token"] = token
+        if not old_disp or old_disp in (old_name, base):
+            self.cfg["display_name"] = name
+
+        cb = getattr(self, "on_identity", None)
+        try:
+            if cb:
+                cb(name, token)          # GUI 注入：同步状态仓 + 落盘
+            else:
+                save_config(self.cfg)
+        except Exception as e:  # noqa: BLE001
+            log_write("身份自愈落盘失败: %s" % e)
+        self.emit(event="log",
+                  msg="↻ 接入码被中控拒绝，已自动重新注册本机身份：%s（无需手动重置）" % name)
+        log_write("401 自愈：重新注册身份 %s（第 %d 次）" % (name, tries + 1))
+        return True
+
     def start(self, cfg):
         """启动引擎线程。已在运行则只更新配置 —— 重复点击「开始」不会再起一个矿工。"""
         self.cfg = dict(cfg)
@@ -2631,8 +2724,10 @@ class MiningEngine:
                     except Exception as e:  # noqa: BLE001
                         msg = str(e)
                         if "401" in msg or "token mismatch" in msg:
+                            self._heal_identity()
                             msg = ("接入码被中控拒绝（重装/更换目录/新旧版本并存导致）。"
-                                   "在中控该矿机卡片点『🔑 重置接入码』即可自动恢复")
+                                   "客户端已自动换身份重试；若仍失败，可在中控该矿机卡片点"
+                                   "『🔑 重置接入码』")
                             if not getattr(self, "_auth_warned", False):
                                 self._auth_warned = True
                                 self.emit(event="log", msg="⚠ " + msg)
@@ -2926,6 +3021,10 @@ def run_gui():
             os.path.isfile(os.path.join(kernel_dir_for(k, cfg["kernel_dir"]), v["exe"]))
             for k, v in KERNELS.items()):
         cfg["kernel_dir"] = DEFAULT_CFG["kernel_dir"]
+    if ensure_machine_identity(cfg):
+        log_write("检测到配置来自另一台机器（复制安装），已切换为本机身份重新注册")
+        append_log("⚠ 这份配置是从别的矿机复制过来的，已自动切换成本机身份"
+                   "（新机器名与新接入码），中控上原来的那台机器不受影响")
     if not cfg.get("token"):
         cfg["token"] = "rig-" + os.urandom(8).hex()
         try:
@@ -3032,6 +3131,21 @@ def run_gui():
             append_log("配置保存失败: %s" % e)
 
     engine.persist = persist_cfg      # 中控远程改配置时由引擎线程落盘
+
+    def sync_identity(name, token):
+        """引擎 401 自愈后把新身份同步到状态仓并落盘（否则下次启动又用回旧令牌）。"""
+        cfg["rig_name"] = name
+        cfg["token"] = token
+        if not cfg.get("display_name"):
+            cfg["display_name"] = name
+        try:
+            S["fields"]["token"] = token
+        except Exception:  # noqa: BLE001
+            pass
+        persist_cfg()
+        append_log("本机已用新身份「%s」重新接入中控" % name)
+
+    engine.on_identity = sync_identity
 
     def parse_games(txt):
         return [x.strip().lower() for x in re.split(r"[,，;；\s]+", txt or "") if x.strip()]
