@@ -1694,8 +1694,11 @@ function render() {
   const past = D.filter(d => d.day < today);
   const sumN = n => past.slice(0, n).reduce((s, d) => s + (d.cny || 0), 0);
   const P = t.wallet_paid || {};
-  const RC = t.cny_rate || 0;
-  const pcny = v => `¥${num(v * RC, 0)}`;
+  const RC = t.cny_rate || 0;              // 美元 → 人民币汇率
+  const PU = t.prl_usd || 0;               // PRL 美元现价
+  // 币数折人民币必须乘币价：只乘汇率会把 1 PRL 当 1 USDT，金额差一个币价的倍数
+  const coinCny = v => num(v * PU * RC, 0);
+  const pcny = v => (PU > 0 ? `¥${coinCny(v)}` : '—');
   const realCard = (id, im, paid, est, unit) => {
     if (paid > 0) {
       $(id).innerHTML = `${num(paid, 4)}<small>${unit || 'PRL'}</small>`;
@@ -1731,7 +1734,7 @@ function render() {
     const parts = Object.keys(wp)
       .filter(p => ((wp[p].reward || {}).today || 0) > 0)
       .map(p => `${esc(wp[p].name)} ${num(wp[p].reward.today, 4)}`);
-    $('ktm').textContent = `≈ ¥${num(R.today * RC, 2)} · 昨日 ${num(R.yesterday || 0, 4)} · 近7日 ${num(R.d7 || 0, 4)} ${rcoin}`
+    $('ktm').textContent = `≈ ${PU > 0 ? '¥' + num(R.today * PU * RC, 2) : '—'} · 昨日 ${num(R.yesterday || 0, 4)} · 近7日 ${num(R.d7 || 0, 4)} ${rcoin}`
       + (parts.length > 1 ? `（${parts.join(' + ')}）` : '');
   } else if (td && td.cny > 0) {
     $('kt').innerHTML = `≈ ¥${num(td.cny, 0)}`;
@@ -1856,7 +1859,7 @@ function render() {
           <span style="font-weight:400;color:var(--muted);font-size:11.5px">${d.rigs.length} 台有算力记录</span></div>
         <div class="rigs-mini">${d.rigs.map(r => `
           <span class="rchip"><b>${esc(r.rig)}</b> ${num(r.ths, 1)} TH/s · ¥${num(r.cny, 2)}
-            ${Object.entries(r.pools || {}).map(([p, u]) => ' · ' + esc(p) + ' ¥' + num(u * (S.fleet.total.cny_rate || 7.1), 1)).join('')}</span>`).join('')}
+            ${Object.entries(r.pools || {}).map(([p, u]) => ' · ' + esc(p) + ' ¥' + num(u * (S.fleet.total.prl_usd || 0) * (S.fleet.total.cny_rate || 7.1), 1)).join('')}</span>`).join('')}
         </div>
       </div>`).join('');
   }

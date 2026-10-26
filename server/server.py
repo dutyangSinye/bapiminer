@@ -942,6 +942,21 @@ def rate_cny():
         return _cny_rate
 
 
+def coin_usd(symbol="PRL"):
+    """币价缓存里的美元现价（没取到返回 0）。
+
+    人民币金额必须走「币数 × 美元价 × 美元汇率」。只乘汇率等于把 PRL
+    当成 1 USDT，金额会差一个 PRL 现价的倍数（≈1.87），而 PRL 跌到 0.5
+    时又会偏大——量级完全看行情，所以不能省这一步。
+    """
+    with _price_lock:
+        d = _price_map.get(symbol) or {}
+    try:
+        return max(0.0, float(d.get("last") or 0))
+    except (TypeError, ValueError):
+        return 0.0
+
+
 # ---------------------------------------------------------------- 币价抓取
 
 def _http_get_json(url, timeout=12):
@@ -1989,6 +2004,7 @@ def fleet_payload(auth=None):
                                    else ("MIX" if _coins else ""))
     total["wallet_coin"] = _coins.pop() if len(_coins) == 1 else ("MIX" if _coins else "")
     total["wallet_age"] = int(time.time() - _wallet_ts) if _wallet_ts else None
+    total["prl_usd"] = coin_usd()
     total["ths"] = round(total["ths"], 1)
     total["power"] = round(total["power"], 0)
     total["income"] = round(total["income"], 0)
@@ -2509,14 +2525,14 @@ def daily_payload(days=30, auth=None):
         d["usdt"] = round(d["usdt"], 4)
         d["cny"] = round(d["usdt"] * rate_cny(), 2)
         out.append({"day": day, "usdt": d["usdt"], "cny": d["cny"],
-                    "paid": paid_days.get(day, 0.0), "paid_cny": round(paid_days.get(day, 0.0) * rate_cny(), 2),
+                    "paid": paid_days.get(day, 0.0), "paid_cny": round(paid_days.get(day, 0.0) * coin_usd() * rate_cny(), 2),
                     "rigs": sorted(d["rigs"].values(), key=lambda x: -x["usdt"])})
     # 打款发生在估算无数据的日子（离线日到账）也要展示
     known = {o["day"] for o in out}
     for day, amt in sorted(paid_days.items(), reverse=True):
         if day not in known:
             out.append({"day": day, "usdt": 0.0, "cny": 0.0,
-                        "paid": amt, "paid_cny": round(amt * rate_cny(), 2), "rigs": []})
+                        "paid": amt, "paid_cny": round(amt * coin_usd() * rate_cny(), 2), "rigs": []})
     out.sort(key=lambda o: o["day"], reverse=True)
     return {"ok": True, "days": out}
 
