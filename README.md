@@ -134,6 +134,19 @@ pyinstaller client/BaPiMiner.spec --distpath dist --workpath build --noconfirm
 | `MINRIGS_SSH_PASS` | tests/deploy 里 SSH 脚本的服务器密码（不硬编码进仓库） |
 | `MINRIGS_ADMIN_TOKEN` | e2e 脚本的中控 admin token |
 
+## 许可证
+
+本项目以 **Apache License 2.0** 开源，全文见 [LICENSE](LICENSE)，署名见 [NOTICE](NOTICE)。
+
+你可以自由使用、修改、商用、再分发，包括闭源集成，只需：
+
+1. 保留版权与许可声明（附一份 LICENSE）；
+2. 修改过的文件注明「已修改」；
+3. 若原作品含 NOTICE 文件，分发时一并带上其署名内容。
+
+Apache-2.0 还包含明确的**专利授权**条款，并对商标使用作出限制：本许可不授予
+「扒皮矿工 / BaPiMiner」名称与标识的使用权。
+
 ## 版本
 
 当前客户端 **v1.13.0.1**（自该版起升级链路强制验签），中控 v3.1.x。版本历史见 git log 与中控发布 notes。
