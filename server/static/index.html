@@ -791,7 +791,8 @@ footer .notes-body{text-align:left;padding:0 4px}
       <input id="q" placeholder="🔍 搜索矿工名…" oninput="render()">
       <select id="fKernel" onchange="render()"><option value="">全部内核</option></select>
       <select id="fPool" onchange="render()"><option value="">全部矿池</option></select>
-      <label class="chk"><input type="checkbox" id="fOffline" onchange="render()">只看离线</label>
+      <label class="chk" title="只显示当前在线的矿机"><input type="checkbox" id="fOnline" onchange="setOnlyOnline(this.checked)">只看在线</label>
+          <label class="chk"><input type="checkbox" id="fOffline" onchange="setOnlyOffline(this.checked)">只看离线</label>
       <label class="chk" title="折叠离线超 2 小时的矿机"><input type="checkbox" id="fShowAllOff" onchange="setShowAllOff(this.checked)">显示全部离线</label>
       <label class="chk" title="按钱包地址聚合"><input type="checkbox" id="fGroup" onchange="render()">按钱包分组</label>
       <label class="chk" title="只显示主信息，收起明细"><input type="checkbox" id="fCompact" onchange="setCompact(this.checked)">精简卡片</label>
@@ -1084,6 +1085,7 @@ function clearRenderedData() {
   const fk = $('fKernel'); if (fk) fk.value = '';
   const fp = $('fPool'); if (fp) fp.value = '';
   const fo = $('fOffline'); if (fo) fo.checked = false;
+  const fon = $('fOnline'); if (fon) fon.checked = false;
 }
 
 /* ---------- 登录 / 注册 ---------- */
@@ -1530,6 +1532,20 @@ let COMPACT_CARDS = false;
      - 数据不删除，后台 rigs 表与告警不受影响，随时可展开查看。
      - 阈值集中在此，改一处即可调整。
    判定用 offline_since（服务端 sweep 标记的掉线时刻），缺失时退回 last_seen。 */
+  // 「只看在线 / 只看离线」互斥：同时打开会互相清空，避免筛出空列表
+  function setOnlyOnline(on) {
+    const onEl = $('fOnline'), offEl = $('fOffline');
+    if (onEl) onEl.checked = !!on;
+    if (on && offEl) offEl.checked = false;
+    render();
+  }
+  function setOnlyOffline(on) {
+    const onEl = $('fOnline'), offEl = $('fOffline');
+    if (offEl) offEl.checked = !!on;
+    if (on && onEl) onEl.checked = false;
+    render();
+  }
+
 const HIDE_OFFLINE_AFTER_SEC = 2 * 3600;   // 2 小时
 
 // 离线时长（秒）。优先 offline_since —— 它是服务端判定掉线的时刻，
@@ -1765,7 +1781,8 @@ function render() {
 
   // ---- 矿机卡片（筛选 + 搜索）
   const kv = $('fKernel').value, pv = $('fPool').value,
-        qv = ($('q').value || '').trim().toLowerCase(), onlyOff = $('fOffline').checked;
+        qv = ($('q').value || '').trim().toLowerCase(), onlyOff = $('fOffline').checked,
+        onlyOn = $('fOnline').checked;
   const showAllOffline = $('fShowAllOff').checked;
   // 长期离线被折叠的台数 —— 用于提示条告知用户「有 N 台离线矿机未展示」
   const hiddenOff = f.rigs.filter(r => isHiddenOffline(r)).length;
@@ -1775,6 +1792,7 @@ function render() {
     // 「只看离线」打开时不折叠 —— 用户明确要查看离线机器时不该被拦。
     if (!showAllOffline && !onlyOff && isHiddenOffline(r)) return false;
     if (onlyOff && r.status === 'online') return false;
+    if (onlyOn && r.status !== 'online') return false;
     if (qv && !r.name.toLowerCase().includes(qv)) return false;
     if (kv && (m0.type || '') !== kv) return false;
     if (pv && !(m0.pool || '').includes(pv)) return false;
@@ -1789,7 +1807,7 @@ function render() {
   // 「只看离线」打开时该提示无意义（此时离线矿机全都显示），不渲染。
   const tip = $('offFoldTip');
   if (tip) {
-    if (hiddenOff > 0 && !onlyOff && !showAllOffline) {
+    if (hiddenOff > 0 && !onlyOff && !onlyOn && !showAllOffline) {
       tip.style.display = 'block';
       tip.innerHTML = `<div class="fold-tip">
         <span class="ic">⏸</span>
