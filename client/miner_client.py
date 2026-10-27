@@ -118,7 +118,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.5"
+CLIENT_VERSION = "1.13.0.6"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -1398,13 +1398,35 @@ def build_cmd(kernel, kernel_dir, algo_label, pool_url, wallet, worker):
 
 # ---------------------------------------------------------------- 采集/解析
 
+GPU_DIAG = ""      # 最近一次显卡检测失败的原因（界面用，空串表示正常）
+
+
 def query_gpus():
+    """列显卡。取不到时把原因记进 GPU_DIAG，别再只显示「未检测到」。"""
+    global GPU_DIAG
     cmd = ["nvidia-smi", "--query-gpu=index,name,temperature.gpu,utilization.gpu,"
            "memory.used,memory.total,fan.speed,power.draw",
            "--format=csv,noheader,nounits"]
-    out = run_hidden(cmd, timeout=10)
-    if not out:
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=10,
+                           startupinfo=hidden_startupinfo(),
+                           creationflags=CREATE_NO_WINDOW if os.name == "nt" else 0)
+    except FileNotFoundError:
+        GPU_DIAG = "找不到 nvidia-smi：本机没装 NVIDIA 驱动，或本来就没有 NVIDIA 显卡"
         return []
+    except Exception as e:  # noqa: BLE001
+        GPU_DIAG = "调用 nvidia-smi 失败：%s" % e
+        return []
+    out = (r.stdout or b"").decode("utf-8", "replace")
+    err = (r.stderr or b"").decode("utf-8", "replace")
+    if r.returncode != 0 or not out.strip():
+        first = ((err or out).strip().splitlines() or [""])[0][:140]
+        GPU_DIAG = ("nvidia-smi 报错：" + first) if first else "nvidia-smi 无输出（驱动可能没就绪）"
+        if "couldn't communicate" in (err or "").lower() \
+                or "unable to determine" in (err or "").lower():
+            GPU_DIAG = "NVIDIA 驱动异常（nvidia-smi 连不上驱动），建议重装驱动或重启"
+        return []
+    GPU_DIAG = ""
     gpus = []
     for line in out.strip().splitlines():
         parts = [p.strip() for p in line.split(",")]
@@ -2264,7 +2286,8 @@ def metrics_from_stats(st):
             "%s   %.1f TH/s   %.0f°C   %.0fW" % (
                 (g.get("model") or "GPU").replace("NVIDIA GeForce ", ""),
                 g.get("ths") or 0, g.get("temp") or 0, g.get("power") or 0)
-            for g in gpus) if gpus else "未检测到 NVIDIA GPU",
+            for g in gpus) if gpus else ("未检测到 NVIDIA GPU"
+                                         + ("（%s）" % GPU_DIAG if GPU_DIAG else "")),
         "uptime": "%d:%02d:%02d" % (up // 3600, up % 3600 // 60, up % 60) if up else "—",
     }
 
