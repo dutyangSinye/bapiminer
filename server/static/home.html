@@ -405,10 +405,10 @@ footer{border-top:1px solid var(--line);padding:30px 0;background:rgba(0,0,0,.24
       <div class="note">Windows 10/11 x64 · Android 6.0+ · 内核与矿池配置已内置</div>
     </div>
     <div class="hero-stats">
-      <div><b>1,924</b><span>TH/s 全网合计算力</span></div>
-      <div><b>690</b><span>GH/W 平均每瓦算力</span></div>
+      <div><b>2,184</b><span>TH/s 全网合计算力</span></div>
+      <div><b>591</b><span>GH/W 平均每瓦算力</span></div>
       <div><b>0%</b><span>平台服务费</span></div>
-      <div><b>7</b><span>种 GPU 型号实测</span></div>
+      <div><b>9</b><span>种 GPU 型号实测</span></div>
     </div>
     <!-- 移动端快捷导航（桌面端由顶栏 nav 承担） -->
     <nav class="mnav">
@@ -483,6 +483,8 @@ footer{border-top:1px solid var(--line);padding:30px 0;background:rgba(0,0,0,.24
         <p>所有矿机在一个页面里：算力、温度、功耗、收益、钱包余额，一屏看完，还能批量操作。</p>
         <ul>
           <li>批量<b>启动 / 停止 / 换池 / 换内核 / 改名字</b></li>
+          <li><b>只看在线</b>一键筛掉离线机，卡片显示每台的 <b>IP 与归属地</b>（管理员可见）</li>
+          <li>算力走势按 <b>10 分钟粒度回看 12 小时</b>，停机缺口留白，不做平滑美化</li>
           <li>矿机掉线、温度过高、算力骤降、本机有别的挖矿程序，<b>自动告警</b></li>
           <li>钱包余额与待付收益直连矿池、链上数据</li>
           <li>多用户体系：每人只看得到自己名下的矿机</li>
@@ -513,10 +515,17 @@ footer{border-top:1px solid var(--line);padding:30px 0;background:rgba(0,0,0,.24
       <p>下面每一张截图都来自我们自己的生产群控台，数据是真的机器在跑出来的。</p>
     </div>
     <div class="grid2">
+      <div class="stack">
       <div class="shot">
         <div class="shot-bar"><i></i><i></i><i></i><span>群控台 · 矿机状态总览</span></div>
-        <img src="/img/shot-dashboard.jpg" alt="群控台矿机状态总览：在线台数、总算力、总功耗、预计日收益、矿池未支付、GPU 状态、今日实际收入、近 30 天实收" loading="lazy">
-        <div class="shot-cap">一屏看完 <b>在线台数 / 总算力 / 总功耗 / 预计日收益 / 矿池未支付 / GPU 状态 / 今日实收 / 近 30 天实收</b>，下方是矿机卡片、用户列表、客户端下载、内核库与算力网。</div>
+        <img src="/img/shot-dashboard.jpg" alt="群控台矿机状态总览：在线台数、总算力、总功耗、预计日收益、矿池未支付、GPU 状态、今日实际收入、近 30 天实收，含只看在线筛选" loading="lazy">
+        <div class="shot-cap">一屏看完 <b>在线台数 / 总算力 / 总功耗 / 预计日收益 / 矿池未支付 / GPU 状态 / 今日实收 / 近 30 天实收</b>；工具栏可<b>只看在线</b>、按内核/矿池筛选、按钱包分组。</div>
+      </div>
+      <div class="shot" style="margin-top:18px">
+        <div class="shot-bar"><i></i><i></i><i></i><span>群控台 · 矿机卡片</span></div>
+        <img src="/img/shot-cards.jpg" alt="群控台矿机卡片：每张卡显示归属、IP 与归属地、内核与客户端版本、功耗温度有效拒绝、连续运行时长，以及近 12 小时算力走势" loading="lazy">
+        <div class="shot-cap">每台矿机一张卡：<b>IP 与归属地</b>（管理员可见）、内核/客户端版本、功耗与温度、有效/拒绝份额、连续运行时长，以及<b>近 12 小时算力走势</b>——曲线按 10 分钟抽点，停机就是缺口，不做平滑美化。</div>
+      </div>
       </div>
       <div class="stack">
         <div class="shot">
@@ -540,14 +549,14 @@ footer{border-top:1px solid var(--line);padding:30px 0;background:rgba(0,0,0,.24
     <div class="sec-hd">
       <div class="k">GPU 实测</div>
       <h2>不同显卡能跑多少，一目了然</h2>
-      <p>下表全部来自我们自有 8 台矿机的生产实测（PRL 算法，PearlHash 官方池），不是厂商标称值。换算按实时币价与汇率，币价波动时收益同步变化。</p>
+      <p>下表全部来自我们自有矿机的生产实测（PRL 算法，PearlHash 官方池），不是厂商标称值。换算按实时币价与汇率，币价波动时收益同步变化。</p>
     </div>
     <div class="table-wrap">
       <div class="table-hd">
         <h3>GPU 算力与日收益实测表</h3>
         <span class="tag g">自有 fleet 实测</span>
         <span class="tag c">PRL / PearlHash</span>
-        <div class="sub" id="gpu-sub">按每瓦算力从高到低排序 —— 电费敏感的场景优先看最后一列。8 台矿机、7 种 GPU 型号的当前采样。</div>
+        <div class="sub" id="gpu-sub">按每瓦算力从高到低排序 —— 电费敏感的场景优先看最后一列。12 台在线矿机、9 种 GPU 型号的当前采样。</div>
       </div>
       <div class="tbl-scroll">
         <table>
