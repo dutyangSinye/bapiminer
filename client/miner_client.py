@@ -118,7 +118,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.6"
+CLIENT_VERSION = "1.13.0.7"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -2886,6 +2886,38 @@ def install_watchdog():
         log_write("看门狗注册失败: %s" % e)
 
 
+def remove_watchdog():
+    """删除看门狗计划任务与脚本（两个自启开关都关掉时调用）。"""
+    if os.name != "nt":
+        return
+    try:
+        subprocess.run(["schtasks", "/Delete", "/TN", WATCHDOG_TASK, "/F"],
+                       capture_output=True, timeout=20,
+                       creationflags=CREATE_NO_WINDOW)
+        log_write("看门狗计划任务已删除（不再自动拉起）")
+    except Exception as e:  # noqa: BLE001
+        log_write("看门狗删除失败: %s" % e)
+    for p in (os.path.join(BASE, "_watchdog.bat"), os.path.join(BASE, "_watchdog_run.vbs")):
+        try:
+            if os.path.isfile(p):
+                os.remove(p)
+        except OSError:
+            pass
+
+
+def disable_watchdog():
+    """停用但不删除：用户主动「退出」时调用，避免 3 分钟后被拉回来。"""
+    if os.name != "nt":
+        return
+    try:
+        subprocess.run(["schtasks", "/Change", "/TN", WATCHDOG_TASK, "/DISABLE"],
+                       capture_output=True, timeout=20,
+                       creationflags=CREATE_NO_WINDOW)
+        log_write("看门狗已停用（下次手动启动程序会自动恢复）")
+    except Exception as e:  # noqa: BLE001
+        log_write("看门狗停用失败: %s" % e)
+
+
 # ---------------------------------------------------------------- 系统托盘
 
 def res_path(name):
@@ -3592,6 +3624,23 @@ def run_gui():
             engine.cfg["check_other_miners"] = bool(val)
         elif key == "auto_update":
             engine.cfg["auto_update"] = bool(val)
+        elif key in ("autostart", "autostart_mining"):
+            # 这两个必须立刻生效 + 立刻落盘：
+            #   只改内存的话，用户取消勾选后直接关窗口，下次启动仍按旧配置自启/自挖。
+            if key == "autostart":
+                err = set_autostart(bool(val))
+                if err:
+                    append_log("开机自启设置失败: %s" % err)
+            else:
+                engine.cfg["autostart_mining"] = bool(val)
+            save_cfg(quiet=True)
+            if S["toggles"].get("autostart") or S["toggles"].get("autostart_mining"):
+                install_watchdog()
+            else:
+                remove_watchdog()
+            append_log("✓ %s已%s（已保存）" % (
+                "开机启动" if key == "autostart" else "启动后自动挖矿",
+                "开启" if val else "关闭"))
 
     # D7：这些字段在客户端**只读**，任何写入请求一律丢弃。
     #   server / token —— 决定矿机连到哪台中控、以什么身份上报。
@@ -3802,6 +3851,7 @@ def run_gui():
 
         def work():
             ok = False
+            disable_watchdog()      # 主动退出 ≠ 崩溃，先让看门狗别再拉起
             try:
                 ok = engine.shutdown()
             except Exception as e:  # noqa: BLE001
@@ -4191,7 +4241,12 @@ def run_gui():
                    "程序会自动从中控下载，不需要手动准备文件")
 
     threading.Thread(target=pump_loop, daemon=True).start()
-    install_watchdog()   # 每 3 分钟自检客户端进程，意外退出自动拉起
+    # 看门狗跟随两个自启开关：都关掉时不再注册，否则它会每 3 分钟
+    # 把程序拉起来，用户「关了又自己开」的观感就来自这里。
+    if cfg.get("autostart") or cfg.get("autostart_mining"):
+        install_watchdog()
+    else:
+        remove_watchdog()
 
     # UI 窗口唯一性巡检：Edge app 窗口不受我们进程管辖，任何一次「打开界面」
     # 判定失手都会在桌面上多留一个窗口，用户看到的就是任务栏一排同名缩略图。
