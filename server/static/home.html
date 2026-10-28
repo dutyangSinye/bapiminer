@@ -556,7 +556,8 @@ footer{border-top:1px solid var(--line);padding:30px 0;background:rgba(0,0,0,.24
         <h3>GPU 算力与日收益实测表</h3>
         <span class="tag g">自有 fleet 实测</span>
         <span class="tag c">PRL / PearlHash</span>
-        <div class="sub" id="gpu-sub">按每瓦算力从高到低排序 —— 电费敏感的场景优先看最后一列。12 台在线矿机、9 种 GPU 型号的当前采样。</div>
+        <span class="tag c" id="gpuGen" title="每天零点后重新采样一次，当天数据不再变动">每日更新</span>
+        <div class="sub" id="gpu-sub">按每瓦算力从高到低排序 —— 电费敏感的场景优先看最后一列。数据每天更新一次，非实时。</div>
       </div>
       <div class="tbl-scroll">
         <table>
@@ -810,11 +811,21 @@ footer{border-top:1px solid var(--line);padding:30px 0;background:rgba(0,0,0,.24
         '<td><span class="' + tagCls + '">' + esc(x.kernel || '—') + '</span></td>' +
         '</tr>';
     }).join('');
+    /* 生成时间：每天零点后重采样一次，当天不再变动。
+       明确写出来，免得访客把它当成实时数据（当天换卡/超频要等次日）。 */
+    function hhmm(ts) {
+      var m = String(ts || '').match(/\d{4}-\d{2}-\d{2}[ T](\d{2}:\d{2})/);
+      return m ? m[1] : '';
+    }
+    var gen = document.getElementById('gpuGen');
+    var genTxt = hhmm(d.generated_at);
+    if (gen) gen.textContent = genTxt ? '生成于 ' + genTxt : '每日更新';
     var sub = document.getElementById('gpu-sub');
     if (sub) {
       sub.textContent = '按每瓦算力从高到低排序 —— 电费敏感的场景优先看最后一列。' +
-        d.total_rigs + ' 台矿机、' + d.total_cards + ' 张显卡、' + d.models +
-        ' 种型号，数据日期 ' + d.date + '（每日自动更新）。';
+        d.total_rigs + ' 台矿机、' + d.total_cards + ' 张显卡、' + d.models + ' 种型号 · ' +
+        '数据日期 ' + d.date + (genTxt ? '，生成于 ' + genTxt : '') +
+        '，每天更新一次（非实时，当天换卡/超频次日才体现）。';
     }
     var foot = document.querySelector('#hashrate .tbl-foot');
     if (foot && d.generated_at) {
