@@ -1220,25 +1220,31 @@ def rate_for(model):
 
 
 _rate_actual_lock = threading.Lock()
-_rate_actual = {"ts": 0.0, "rate": 0.0, "prl": 0.0, "usd": 0.0, "avg_ths": 0.0, "days": 7}
+_rate_actual = {"ts": 0.0, "rate": 0.0, "rate_prl": 0.0, "prl": 0.0, "usd": 0.0,
+                "avg_ths": 0.0, "days": 7, "price": 0.0}
 
 
 def rate_actual(days=7):
-    """用近 N 天「链上实收 ÷ 同期机群平均算力」反推真实收益率（USDT/TH/s/天）。
+    """近 N 天「每算力收益」，币本位：PRL per TH/s per day。
 
-    为什么不用第三方榜单：vminers 的 PRL 实测均价是币价高位时的快照，
-    PRL 从 1.87 跌到 1.50 后它没有同步更新，按它算的「预计日收益」
-    比链上实收高约 30%。这里以实收为准，60 秒缓存一次。
+    算法：把每一天的链上实收 PRL 与该天的机群算力配对，只取两者都有数据的天，
+    再按「Σ实收 ÷ Σ机群算力」加权 —— 这样单位是 PRL/TH/天，与币价无关。
+    折算人民币时再乘实时币价与汇率，币价跌了收益立刻跟着跌。
 
-    钱包数据由 wallet_loop 每 5 分钟刷新；第一轮还没跑完时返回 0，
-    调用方（rate_best）会退回第三方榜单，并且这种情况不写缓存。
+    为什么不用第三方榜单：vminers 的 0.02034 USDT/TH/天 是币价 1.87 时的快照，
+    直接当美元收益率用，币价跌到 1.50 后仍按旧价算，会系统性偏高约 30%。
+
+    钱包数据由 wallet_loop 每 5 分钟刷新；第一轮没跑完时返回 0（不写缓存），
+    调用方 rate_best 会退回第三方榜单。
     """
     now = time.time()
     with _rate_actual_lock:
         if _rate_actual["ts"] and now - _rate_actual["ts"] < 60:
             return dict(_rate_actual)
+
     since = now - days * 86400
-    prl = 0.0
+    # 1) 每天实收 PRL（按北京日）
+    paid_by_day = {}
     try:
         for v in unique_wallets():
             for day, amt in ((v.get("paid") or {}).get("days") or {}).items():
@@ -1247,12 +1253,12 @@ def rate_actual(days=7):
                 except (ValueError, TypeError):
                     continue
                 if ts >= since:
-                    prl += float(amt or 0)
+                    paid_by_day[day] = paid_by_day.get(day, 0.0) + float(amt or 0)
     except Exception as e:  # noqa: BLE001
         print("[rate] 读取实收失败: %s" % e, flush=True)
-    # 机群平均算力：先算每台每天的平均，按天求和（=当天机群算力），再跨天平均。
-    # 直接 AVG(samples.ths) 会被历史行数不均的机器带偏。
-    avg_ths, n_days = 0.0, 0
+
+    # 2) 每天的机群算力：各机当天平均算力相加（=当天机群算力）
+    ths_by_day = {}
     try:
         c = db()
         rows = c.execute(
@@ -1260,23 +1266,38 @@ def rate_actual(days=7):
             "  SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, AVG(ths) aths "
             "  FROM samples WHERE ts>? AND ths>0 GROUP BY dkey, rig"
             ") GROUP BY dkey", (since,)).fetchall()
-        vals = [float(r[1] or 0) for r in rows if (r[1] or 0) > 0]
-        n_days = len(vals)
-        avg_ths = sum(vals) / n_days if n_days else 0.0
+        for dkey, ths in rows:
+            day = time.strftime("%Y-%m-%d", time.gmtime(int(dkey) * 86400))
+            if (ths or 0) > 0:
+                ths_by_day[day] = float(ths)
     except Exception as e:  # noqa: BLE001
         print("[rate] 读取算力失败: %s" % e, flush=True)
+
+    # 3) 只取「实收 + 算力」都有的天，加权平均
+    prl = sum_ths = 0.0
+    n_days = 0
+    for day, p in paid_by_day.items():
+        t = ths_by_day.get(day) or 0.0
+        if p > 0 and t > 0:
+            prl += p
+            sum_ths += t
+            n_days += 1
+    rate_prl = (prl / sum_ths) if sum_ths > 0 else 0.0        # PRL/TH/天
     usd = prl * coin_usd()
-    rate = (usd / n_days / avg_ths) if (avg_ths > 0 and usd > 0 and n_days) else 0.0
-    out = {"ts": now if rate else 0.0, "rate": round(rate, 6), "prl": round(prl, 4),
-           "usd": round(usd, 2), "avg_ths": round(avg_ths, 1), "days": n_days or days}
+    rate_usdt = rate_prl * coin_usd()                         # USDT/TH/天（按当前币价）
+    out = {"ts": now if rate_prl else 0.0,
+           "rate_prl": round(rate_prl, 6),
+           "rate": round(rate_usdt, 6),
+           "prl": round(prl, 4), "usd": round(usd, 2),
+           "avg_ths": round(sum_ths / n_days, 1) if n_days else 0.0,
+           "days": n_days or days, "price": round(coin_usd(), 4)}
     with _rate_actual_lock:
         _rate_actual.update(out)
-    if rate:
-        print("[rate] 近 %d 天实收折算 %.5f USDT/TH/天（%.2f PRL = $%.2f / %.0f TH/s）"
-              % (n_days, rate, prl, usd, avg_ths), flush=True)
+    if rate_prl:
+        print("[rate] 近 %d 天每算力收益 %.5f PRL/TH/天 → 按币价 %.4f = %.5f USDT/TH/天"
+              % (n_days, rate_prl, coin_usd(), rate_usdt), flush=True)
     else:
-        print("[rate] 实收数据尚未就绪（%.2f PRL / %.0f TH/s），暂用第三方榜单"
-              % (prl, avg_ths), flush=True)
+        print("[rate] 实收/算力数据未配对（%.2f PRL），暂用第三方榜单" % prl, flush=True)
     return dict(out)
 
 
@@ -2020,6 +2041,7 @@ def fleet_payload(auth=None):
              "rate_age": int(time.time() - _rate_ts) if _rate_ts else None,
              "rate_avg_usdt": round(rate_best()[0], 6),
              "rate_source": rate_best()[1],
+             "rate_prl_ths": rate_actual().get("rate_prl") or None,
              "rate_vminers_usdt": round(rate_avg(), 6),
              "cny_rate": rate_cny(),
              "client_latest": client_release().get("version") or ""}
