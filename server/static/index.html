@@ -892,7 +892,7 @@ footer .notes-body{text-align:left;padding:0 4px}
     <summary>口径与规则说明</summary>
     <div class="notes-body">
       告警规则：掉线（150 秒无心跳）· 算力较 1 小时均值降 25% · GPU ≥ 83C<br>
-      日收益估算 = 总算力 × 全网均价(USDT/TH/s/天) × 实时汇率（数据来源：vminers.com PRL 实测榜），含矿池/dev fee 前毛收益<br>
+      日收益估算 = 总算力 × 收益率(USDT/TH/s/天) × 实时汇率，含矿池/dev fee 前毛收益<br>收益率优先用<b>近 7 天链上实收 ÷ 同期平均算力</b>反推（实收为准）；实收数据不足时退回 vminers.com PRL 实测榜均价（该榜单随币价下跌会滞后，常偏高约 30%）<br>
       实收/未支付余额/打款记录来自矿池 API（Kryptex Pool）真实数据；矿池攒满起付线（1 PRL）批量打款，实收按到账日计，晚于实际挖矿日<br>
       今日实际收入 = 矿池奖励曲线（reward-chart）当日收益，按北京时间汇总；与「实收」的区别：实收是攒满起付线后的批量打款到账，今日实际收入是当天真实挖矿收益（币数）
     </div>
@@ -1661,7 +1661,11 @@ function render() {
   $('k3').innerHTML = `${num(t.power / 1000, 2)}<small>kW</small>`;
   $('k3m').textContent = 'GPU 板功耗合计';
   $('k4').innerHTML = t.income ? `¥${num(t.income, 0)}` : '—';
-  $('k4m').textContent = t.income ? `均价 ${t.rate_avg_usdt || '—'} USDT/TH/s · 汇率 ${(t.cny_rate || 0).toFixed(2)}` : '等待收益数据同步';
+  $('k4m').textContent = t.income
+    ? (t.rate_source === 'actual7d'
+        ? `按近 7 日实收折算 ${t.rate_avg_usdt || '—'} USDT/TH/s · 汇率 ${(t.cny_rate || 0).toFixed(2)}`
+        : `全网均价 ${t.rate_avg_usdt || '—'} USDT/TH/s · 汇率 ${(t.cny_rate || 0).toFixed(2)}`)
+    : '等待收益数据同步';
 
   // ---- 矿池钱包真实余额（同一钱包被多台矿机共用只计一次）
   const WM = f.rigs.map(r => r.wallet).filter(Boolean);
@@ -1879,7 +1883,7 @@ function render() {
         <div class="dhd"><span>${d.day}</span>
           ${d.day === today && (t.wallet_reward || {}).today > 0 ? `<span class="inc" style="background:#eef4ff;color:#2563bf" title="${esc(poolTip(d.day))}">实际 ${num(t.wallet_reward.today, 4)} ${esc(t.wallet_reward_coin || 'PRL')}</span>` : ''}
           ${d.paid ? `<span class="inc" title="矿池真实打款到账">实收 ${num(d.paid, 4)} PRL · ¥${num(d.paid_cny, 2)}</span>` : ''}
-          <span class="inc" style="background:transparent;color:var(--muted)" title="按当日算力×均价估算">≈ ¥${num(d.cny, 2)}</span>
+          <span class="inc" style="background:transparent;color:var(--muted)" title="按当日算力 × 收益率估算（近 7 日实收口径）">≈ ¥${num(d.cny, 2)}</span>
           <span style="font-weight:400;color:var(--muted);font-size:11.5px">${d.rigs.length} 台有算力记录</span></div>
         <div class="rigs-mini">${d.rigs.map(r => `
           <span class="rchip"><b>${esc(r.rig)}</b> ${num(r.ths, 1)} TH/s · ¥${num(r.cny, 2)}

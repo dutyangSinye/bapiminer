@@ -96,7 +96,7 @@ def _build_gpu_table():
     rows = c.execute(
         "SELECT name, last_seen, last_report FROM rigs WHERE last_seen > ? ORDER BY name",
         (time.time() - 86400,)).fetchall()
-    avg, cny = rate_avg(), rate_cny()
+    avg, cny = rate_best()[0], rate_cny()
     groups = {}
     for r in rows:
         try:
@@ -1219,6 +1219,86 @@ def rate_for(model):
     return None
 
 
+_rate_actual_lock = threading.Lock()
+_rate_actual = {"ts": 0.0, "rate": 0.0, "prl": 0.0, "usd": 0.0, "avg_ths": 0.0, "days": 7}
+
+
+def rate_actual(days=7):
+    """用近 N 天「链上实收 ÷ 同期机群平均算力」反推真实收益率（USDT/TH/s/天）。
+
+    为什么不用第三方榜单：vminers 的 PRL 实测均价是币价高位时的快照，
+    PRL 从 1.87 跌到 1.50 后它没有同步更新，按它算的「预计日收益」
+    比链上实收高约 30%。这里以实收为准，60 秒缓存一次。
+
+    钱包数据由 wallet_loop 每 5 分钟刷新；第一轮还没跑完时返回 0，
+    调用方（rate_best）会退回第三方榜单，并且这种情况不写缓存。
+    """
+    now = time.time()
+    with _rate_actual_lock:
+        if _rate_actual["ts"] and now - _rate_actual["ts"] < 60:
+            return dict(_rate_actual)
+    since = now - days * 86400
+    prl = 0.0
+    try:
+        for v in unique_wallets():
+            for day, amt in ((v.get("paid") or {}).get("days") or {}).items():
+                try:
+                    ts = time.mktime(time.strptime(day, "%Y-%m-%d")) - 28800  # 北京日 00:00 的 UTC
+                except (ValueError, TypeError):
+                    continue
+                if ts >= since:
+                    prl += float(amt or 0)
+    except Exception as e:  # noqa: BLE001
+        print("[rate] 读取实收失败: %s" % e, flush=True)
+    # 机群平均算力：先算每台每天的平均，按天求和（=当天机群算力），再跨天平均。
+    # 直接 AVG(samples.ths) 会被历史行数不均的机器带偏。
+    avg_ths, n_days = 0.0, 0
+    try:
+        c = db()
+        rows = c.execute(
+            "SELECT dkey, SUM(aths) FROM ("
+            "  SELECT CAST((ts+28800)/86400 AS INT) dkey, rig, AVG(ths) aths "
+            "  FROM samples WHERE ts>? AND ths>0 GROUP BY dkey, rig"
+            ") GROUP BY dkey", (since,)).fetchall()
+        vals = [float(r[1] or 0) for r in rows if (r[1] or 0) > 0]
+        n_days = len(vals)
+        avg_ths = sum(vals) / n_days if n_days else 0.0
+    except Exception as e:  # noqa: BLE001
+        print("[rate] 读取算力失败: %s" % e, flush=True)
+    usd = prl * coin_usd()
+    rate = (usd / n_days / avg_ths) if (avg_ths > 0 and usd > 0 and n_days) else 0.0
+    out = {"ts": now if rate else 0.0, "rate": round(rate, 6), "prl": round(prl, 4),
+           "usd": round(usd, 2), "avg_ths": round(avg_ths, 1), "days": n_days or days}
+    with _rate_actual_lock:
+        _rate_actual.update(out)
+    if rate:
+        print("[rate] 近 %d 天实收折算 %.5f USDT/TH/天（%.2f PRL = $%.2f / %.0f TH/s）"
+              % (n_days, rate, prl, usd, avg_ths), flush=True)
+    else:
+        print("[rate] 实收数据尚未就绪（%.2f PRL / %.0f TH/s），暂用第三方榜单"
+              % (prl, avg_ths), flush=True)
+    return dict(out)
+
+
+def rate_best():
+    """收益计算用的收益率：优先「近 7 天实收」，取不到再退回第三方榜单。"""
+    a = rate_actual()
+    if a.get("rate"):
+        return a["rate"], "actual7d"
+    return rate_avg(), "vminers"
+
+
+def rate_source_payload():
+    a = rate_actual()
+    return {"rate_used": a.get("rate") or rate_avg(),
+            "rate_source": "actual7d" if a.get("rate") else "vminers",
+            "rate_actual_usdt": a.get("rate") or None,
+            "rate_vminers_usdt": round(rate_avg(), 6),
+            "rate_window_days": a.get("days"),
+            "rate_paid_prl": a.get("prl"),
+            "rate_avg_ths": a.get("avg_ths")}
+
+
 def rate_avg():
     """vminers 全表加权均价 USDT/TH/s/天（收益计算用，与显卡型号无关）。"""
     with _rate_lock:
@@ -1786,7 +1866,7 @@ def handle_report(payload, client_ip=""):
     model = (gpus[0].get("model") if gpus else "") or ""
     # 收益 = 总算力 × vminers 全表均价(USDT/TH/s/天) × 实时汇率（型号仅做参考展示，不参与计算）
     income = None
-    avg = rate_avg()
+    avg, _src = rate_best()
     if avg:
         income = round(ths * avg * rate_cny(), 2)
     ref = rate_meta_for(model)  # 参考信息：该卡在 vminers 榜上的对应条目
@@ -1938,7 +2018,9 @@ def fleet_payload(auth=None):
     out = []
     total = {"online": 0, "ths": 0.0, "power": 0.0, "income": 0.0, "gamemode": 0,
              "rate_age": int(time.time() - _rate_ts) if _rate_ts else None,
-             "rate_avg_usdt": round(rate_avg(), 5),
+             "rate_avg_usdt": round(rate_best()[0], 6),
+             "rate_source": rate_best()[1],
+             "rate_vminers_usdt": round(rate_avg(), 6),
              "cny_rate": rate_cny(),
              "client_latest": client_release().get("version") or ""}
     for r in rigs:
@@ -2922,7 +3004,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": err}, 401)
             out = {
                 "ok": True,
-                "rate_avg_usdt": round(rate_avg(), 6),
+                "rate_avg_usdt": round(rate_best()[0], 6),
+        "rate_source": rate_best()[1],
+        "rate_vminers_usdt": round(rate_avg(), 6),
                 "cny_rate": rate_cny(),
                 "rate_age": int(time.time() - _rate_ts) if _rate_ts else None,
                 "source": INCOME_SRC,
