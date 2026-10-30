@@ -874,15 +874,90 @@ def rig_avg_ths(rig, window_sec):
 
 # ---------------------------------------------------------------- 收益率
 
+RATE_CACHE_FILE = os.path.join(DATA_DIR, "rates.json")
+
+
+def http_get_text_v4(url, timeout=25, ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) bapiminer/1.0"):
+    """只走 IPv4 的 GET。
+
+    容器的 DNS 对 vminers 只给出 IPv6，而容器没有 v6 出口 —— 直接 urlopen 会卡到
+    超时（日志里那条 handshake timed out 就是这个）。这里显式解析 A 记录并连 v4。
+    """
+    import socket as _socket
+    import ssl as _ssl
+    from urllib.parse import urlsplit as _urlsplit
+
+    u = _urlsplit(url)
+    host = u.hostname or ""
+    port = u.port or (443 if u.scheme == "https" else 80)
+    path = (u.path or "/") + (("?" + u.query) if u.query else "")
+    infos = _socket.getaddrinfo(host, port, _socket.AF_INET, _socket.SOCK_STREAM)
+    ip = infos[0][4][0]
+    raw = _socket.create_connection((ip, port), timeout=timeout)
+    try:
+        if u.scheme == "https":
+            ctx = _ssl.create_default_context()
+            raw = ctx.wrap_socket(raw, server_hostname=host)
+        req = ("GET %s HTTP/1.1\r\nHost: %s\r\nUser-Agent: %s\r\n"
+               "Accept: text/html,application/xhtml+xml\r\nAccept-Encoding: identity\r\n"
+               "Connection: close\r\n\r\n" % (path, host, ua))
+        raw.sendall(req.encode("ascii", "replace"))
+        buf = b""
+        while True:
+            chunk = raw.recv(65536)
+            if not chunk:
+                break
+            buf += chunk
+            if len(buf) > 8_000_000:
+                break
+    finally:
+        try:
+            raw.close()
+        except OSError:
+            pass
+    head, _, body = buf.partition(b"\r\n\r\n")
+    if b" 200 " not in head.split(b"\r\n")[0]:
+        raise RuntimeError("HTTP %s" % head.split(b"\r\n")[0].decode("latin-1"))
+    return body.decode("utf-8", "replace")
+
+
+def _rate_save():
+    """把最近一次成功的榜单数据落盘（重启后不必重新抓）。"""
+    try:
+        with open(RATE_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump({"ts": _rate_ts, "avg": _rate_avg, "map": _rate_map,
+                       "meta": _rate_meta}, f, ensure_ascii=False)
+    except OSError as e:
+        print("[rate] 落盘失败: %s" % e, flush=True)
+
+
+def _rate_load():
+    global _rate_map, _rate_ts, _rate_meta, _rate_meta_lc, _rate_avg
+    try:
+        with open(RATE_CACHE_FILE, encoding="utf-8") as f:
+            d = json.load(f)
+        if d.get("map") and d.get("avg"):
+            with _rate_lock:
+                _rate_map = d["map"]
+                _rate_meta = d.get("meta") or {}
+                _rate_meta_lc = {k.lower(): k for k in _rate_map}
+                _rate_avg = float(d["avg"])
+                _rate_ts = float(d.get("ts") or 0)
+            print("[rate] 已载入上次榜单缓存（%.5f USDT/TH/天，%d 个型号，%d 分钟前）"
+                  % (_rate_avg, len(_rate_map), int((time.time() - _rate_ts) / 60)), flush=True)
+            return True
+    except (OSError, ValueError, KeyError):
+        pass
+    return False
+
+
 def rate_fetch_loop():
     global _rate_map, _rate_ts, _rate_meta, _rate_meta_lc, _rate_avg
+    _rate_load()
+    fail = 0
     while True:
         try:
-            req = urllib.request.Request(
-                INCOME_SRC,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) bapiminer/1.0"})
-            with urllib.request.urlopen(req, timeout=30) as r:
-                html = r.read().decode("utf-8", "replace")
+            html = http_get_text_v4(INCOME_SRC, timeout=25)
             m, meta = {}, {}
             for row in re.findall(r"<tr[^>]*>(.*?)</tr>", html, re.S):
                 cells = re.findall(r"<t[dh][^>]*>(.*?)</t[dh]>", row, re.S)
@@ -906,12 +981,19 @@ def rate_fetch_loop():
                     _rate_meta_lc = {k.lower(): k for k in m}
                     _rate_avg = tot_usdt / tot_ths if tot_ths else 0.0
                     _rate_ts = time.time()
-                print("[rate] vminers 收益率更新：%d 个型号，均价 %.4f USDT/TH/s/天"
+                fail = 0
+                _rate_save()
+                print("[rate] vminers 收益率更新：%d 个型号，均价 %.5f USDT/TH/s/天"
                       % (len(m), _rate_avg), flush=True)
         except Exception as e:  # noqa: BLE001
-            print("[rate] 拉取失败: %s" % e, flush=True)
+            fail += 1
+            old = time.time() - _rate_ts if _rate_ts else None
+            print("[rate] 拉取失败（第 %d 次）: %s；当前用%s"
+                  % (fail, e, ("上次缓存（%d 分钟前）" % int(old / 60)) if old is not None else "默认值"),
+                  flush=True)
         _fetch_cny_rate()
-        time.sleep(600)
+        # 连续失败时缩短间隔尽快恢复，成功后回到 10 分钟
+        time.sleep(60 if fail else 600)
 
 
 def _fetch_cny_rate():
@@ -1302,11 +1384,17 @@ def rate_actual(days=7):
 
 
 def rate_best():
-    """收益计算用的收益率：优先「近 7 天实收」，取不到再退回第三方榜单。"""
+    """收益计算用的收益率：以 vminers 榜单为准（用户指定），取不到才用实收反推。
+
+    vminers 是「USDT/TH/s/天」的美元值，折算人民币只需乘汇率（不要再乘币价）。
+    """
+    r = rate_avg()
+    if r:
+        return r, "vminers"
     a = rate_actual()
     if a.get("rate"):
         return a["rate"], "actual7d"
-    return rate_avg(), "vminers"
+    return 0.0, "none"
 
 
 def rate_source_payload():

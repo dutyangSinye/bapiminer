@@ -892,7 +892,7 @@ footer .notes-body{text-align:left;padding:0 4px}
     <summary>口径与规则说明</summary>
     <div class="notes-body">
       告警规则：掉线（150 秒无心跳）· 算力较 1 小时均值降 25% · GPU ≥ 83C<br>
-      日收益估算 = <b>算力 × 每算力收益(PRL/TH/天) × 实时币价 × 汇率</b>，含矿池/dev fee 前毛收益<br>每算力收益优先用<b>近 7 天链上实收 ÷ 同期机群算力</b>反推（币本位，与币价无关）；折算人民币时乘实时币价，币价跌收益跟着跌。实收数据不足时退回 vminers.com 榜单均价（那是币价 1.87 时的快照，直接当美元收益率用会偏高约 30%）<br>
+      日收益估算 = <b>算力 × 每算力收益(USDT/TH/s/天) × 实时汇率</b>，含矿池/dev fee 前毛收益<br>每算力收益取自 <b>vminers.com PRL 实测榜</b>（55 个型号的 USDT 日收益 ÷ 该型号算力，按算力加权），每 10 分钟刷新一次，抓取结果落盘，重启或抓取失败时沿用上一次数据并在卡片上标注时间<br>说明：榜单是美元口径，按当时的币价折算；币价变动后它会滞后，想要实时币价口径可切到「近 7 天实收反推」（PRL/TH/天 × 实时币价）<br>
       实收/未支付余额/打款记录来自矿池 API（Kryptex Pool）真实数据；矿池攒满起付线（1 PRL）批量打款，实收按到账日计，晚于实际挖矿日<br>
       今日实际收入 = 矿池奖励曲线（reward-chart）当日收益，按北京时间汇总；与「实收」的区别：实收是攒满起付线后的批量打款到账，今日实际收入是当天真实挖矿收益（币数）
     </div>
@@ -1662,9 +1662,10 @@ function render() {
   $('k3m').textContent = 'GPU 板功耗合计';
   $('k4').innerHTML = t.income ? `¥${num(t.income, 0)}` : '—';
   $('k4m').textContent = t.income
-    ? (t.rate_source === 'actual7d'
-        ? `每算力 ${t.rate_prl_ths || '—'} PRL/TH/天 × 币价 ${t.prl_usd || '—'} · 汇率 ${(t.cny_rate || 0).toFixed(2)}`
-        : `榜单均价 ${t.rate_avg_usdt || '—'} USDT/TH/s · 汇率 ${(t.cny_rate || 0).toFixed(2)}`)
+    ? (t.rate_source === 'vminers'
+        ? `vminers 榜均价 ${t.rate_avg_usdt || '—'} USDT/TH/s · 汇率 ${(t.cny_rate || 0).toFixed(2)}`
+          + (t.rate_age != null ? ` · 数据 ${t.rate_age < 90 ? '刚更新' : Math.round(t.rate_age / 60) + ' 分钟前'}` : '')
+        : `每算力 ${t.rate_prl_ths || '—'} PRL/TH/天 × 币价 ${t.prl_usd || '—'} · 汇率 ${(t.cny_rate || 0).toFixed(2)}`)
     : '等待收益数据同步';
 
   // ---- 矿池钱包真实余额（同一钱包被多台矿机共用只计一次）
