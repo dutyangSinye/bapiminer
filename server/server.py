@@ -2628,12 +2628,50 @@ def _backfill_cached_sha():
         _save_kernel_meta()
 
 
+def kernel_manifest_entry(name):
+    """签名清单里该内核的版本与哈希（清单是安全基准）。
+
+    直接读文件而不是复用内部 helper：那份 helper 在线上副本里名字不同
+    （_manifest_bytes），引用错过一次导致 kernel_dl 全 500。
+    """
+    path = (globals().get("MANIFEST_FILE") or globals().get("SIGNED_MANIFEST")
+            or os.path.join(DATA_DIR, "signed_manifest.json"))
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            doc = json.load(f)
+    except (OSError, ValueError):
+        return None
+    e = (doc.get("kernels") or {}).get(name) or {}
+    return e if e.get("version") and e.get("sha256") else None
+
+
 def kernel_download(name):
-    """下载（带镜像重试）并缓存，返回 (本地路径, 错误)。"""
+    """下载（带镜像重试）并缓存，返回 (本地路径, 错误)。
+
+    ★ 只发签名清单里指定的版本：
+      清单是矿机端校验的唯一依据。如果这里按「上游最新版」发，清单一旦没跟上，
+      客户端下完就是「内核包与签名清单不一致」，批量升级必然失败
+      （2026-10-31 srbminer 3.8.3 vs 清单 3.8.0 就是这样炸的）。
+      清单指定的版本没缓存时，先尝试按该版本文件名找缓存，找不到再报错，
+      由发布者重签清单 —— 绝不拿别的版本顶替。
+    """
     meta = _kernel_meta["catalog"].get(name)
     if not meta:
         return None, "尚无 %s 版本信息，请先点「检查更新」" % name
     os.makedirs(KERNEL_DIR, exist_ok=True)
+    ent = kernel_manifest_entry(name)
+    if ent:
+        pinned = ent["version"]
+        p = os.path.join(KERNEL_DIR, "%s-%s.zip" % (name, pinned))
+        if os.path.exists(p) and os.path.getsize(p) > 1_000_000:
+            if meta.get("version") != pinned:
+                print("[kernel] %s 上游%s、清单%s，按清单发缓存" % (name, meta.get("version"), pinned),
+                      flush=True)
+            return p, None
+        # 清单版本没缓存：不要拿别的版本顶替
+        if meta.get("version") != pinned:
+            return None, ("中控缓存与签名清单不同步：清单为 %s，缓存里没有该版本。"
+                          "请发布者重签清单（tools/sign_manifest.py sign）" % pinned)
     dest = os.path.join(KERNEL_DIR, "%s-%s.zip" % (name, meta["version"]))
     if os.path.exists(dest) and os.path.getsize(dest) > 1_000_000:
         return dest, None
@@ -3163,8 +3201,11 @@ class Handler(BaseHTTPRequestHandler):
             meta = _kernel_meta["catalog"].get(name) or {}
             with open(path, "rb") as f:
                 data = f.read()
+            # 版本号以签名清单为准（清单才是客户端校验依据）；
+            # 用 meta 的“上游最新版”会和实际发出的包对不上，日志里看着像已升级。
+            _ent = kernel_manifest_entry(name) or {}
             return self._send(200, data, "application/zip", extra={
-                "X-Kernel-Version": meta.get("version") or "",
+                "X-Kernel-Version": _ent.get("version") or meta.get("version") or "",
                 "X-Kernel-Name": meta.get("file") or "",
                 "X-Kernel-Key": name,
             })
