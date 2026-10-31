@@ -118,7 +118,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.8"
+CLIENT_VERSION = "1.13.0.9"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -2899,11 +2899,17 @@ def install_watchdog():
         bat = os.path.join(BASE, "_watchdog.bat")
         with open(bat, "w", encoding="ascii", newline="\r\n") as f:
             # 全量 tasklist 模糊匹配：升级窗口期进程名是 BaPiMiner.new.exe，
-            # 精确匹配会把它当「死了」而误拉旧版，打断自替换
+            # 精确匹配会把它当「死了」而误拉旧版，打断自替换。
+            # 依次尝试：正式名 → .bak（升级改名成功但拉起失败）→ .new.exe（新包还在），
+            # 三者都没有才放弃，避免升级失败后机器一直离线。
             f.write("\r\n".join([
                 "@echo off",
                 "tasklist /FO CSV 2>nul | find /I \"BaPiMiner\" >nul",
-                "if errorlevel 1 start \"\" \"%s\"" % EXE_PATH,
+                "if not errorlevel 1 goto :eof",
+                "if exist \"%s\" ( start \"\" \"%s\" & goto :eof )" % (EXE_PATH, EXE_PATH),
+                "if exist \"%s.bak\" ( copy /y \"%s.bak\" \"%s\" >nul 2>nul & "
+                "start \"\" \"%s\" & goto :eof )" % (EXE_PATH, EXE_PATH, EXE_PATH, EXE_PATH),
+                "if exist \"%s.new.exe\" ( start \"\" \"%s.new.exe\" & goto :eof )" % (EXE_PATH, EXE_PATH),
             ]) + "\r\n")
         vbs = os.path.join(BASE, "_watchdog_run.vbs")
         with open(vbs, "w", encoding="ascii", newline="\r\n") as f:
@@ -4474,6 +4480,14 @@ def self_replace_main(old):
         os.replace(exe, old)                      # 运行中的 exe 允许改名
     except OSError as e:
         log_write("自替换改名失败: %s" % e)
+        # 关键兜底：旧版已被改名成 .bak，如果这里再失败，正式路径就空了，
+        # 看门狗没东西可拉 → 机器永久离线（hl-3080 就是这么掉的）。
+        try:
+            if os.path.isfile(old + ".bak"):
+                os.replace(old + ".bak", old)
+                log_write("已把旧版改回 %s，看门狗将拉起旧版（升级失败但不停机）" % old)
+        except OSError as e2:
+            log_write("回滚旧版失败（需人工介入）: %s" % e2)
         _update_lock_release()
         return 1
     try:
@@ -4685,6 +4699,48 @@ def selftest():
     return 0 if ok else 1
 
 
+def install_self_if_pending():
+    """当自己是以 .new.exe 身份运行时，把自己改名到正式路径并重启。
+
+    正常升级由 --self-replace 负责；但如果那一步失败、看门狗兜底拉起了
+    BaPiMiner.exe.new.exe，或者用户手动双击了它，就需要这里自我收尾，
+    否则每次都要靠 .new.exe 跑，下次升级还会堆一层。
+    """
+    if not getattr(sys, "frozen", False):
+        return False
+    exe = os.path.abspath(sys.executable)
+    if not exe.lower().endswith(".new.exe"):
+        return False
+    real = exe[:-len(".new.exe")] + ".exe"
+    # 等可能还在退出的旧进程
+    for _ in range(40):
+        try:
+            if not os.path.isfile(real):
+                break
+            with open(real, "ab"):
+                pass
+            break
+        except OSError:
+            time.sleep(0.5)
+    try:
+        if os.path.isfile(real):
+            try:
+                os.replace(real, real + ".bak")
+            except OSError:
+                pass
+        os.replace(exe, real)
+    except OSError as e:
+        log_write("自我安装失败（继续以 .new.exe 运行）: %s" % e)
+        return False
+    log_write("已把自身安装到正式路径 %s，重新拉起" % real)
+    try:
+        popen_hidden([real], cwd=os.path.dirname(real) or BASE, pipe_out=False)
+    except Exception as e:  # noqa: BLE001
+        log_write("拉起正式版失败: %s" % e)
+        return False
+    return True
+
+
 if __name__ == "__main__":
     if "--selftest" in sys.argv:
         sys.exit(selftest())
@@ -4692,6 +4748,9 @@ if __name__ == "__main__":
         i = sys.argv.index("--self-replace")
         old = sys.argv[i + 1] if len(sys.argv) > i + 1 else ""
         sys.exit(self_replace_main(old) if old else 1)
+    # 以 .new.exe 身份被启动（看门狗兜底/手动双击）→ 自我安装并重启
+    if install_self_if_pending():
+        sys.exit(0)
     if "--tkcheck" in sys.argv or "--webcheck" in sys.argv:
         ok = os.path.isfile(res_path(os.path.join("web", "index.html"))) or \
             os.path.isfile(os.path.join(BASE, "web", "index.html"))
