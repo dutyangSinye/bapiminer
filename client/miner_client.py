@@ -118,7 +118,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.7"
+CLIENT_VERSION = "1.13.0.8"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -2453,6 +2453,7 @@ class MiningEngine:
         if cmd == "start_miner":
             self.remote_stop = False
             self.paused = False
+            self.revive("中控远程启动")
             self.emit(event="log", msg="中控远程启动挖矿")
             return True, "已恢复矿工"
         if cmd == "update_kernel":
@@ -2467,7 +2468,9 @@ class MiningEngine:
                                        force=True, cfg=self.cfg)
             if err:
                 self.emit(event="log", msg="✕ 内核更新失败：%s" % err)
+                self.revive("内核更新失败后")   # 别把矿工停在已停状态
                 return False, err
+            self.revive("内核更新后")
             self.emit(event="kernel", version=new_v)
             self.kernel_ver = new_v or old_v
             if new_v and new_v == old_v:
@@ -2523,13 +2526,13 @@ class MiningEngine:
             self.cfg["kernel"] = key
             self._persist_cfg()
             self._cfg_ver += 1
-            self._kill()
+            self.revive("中控切换内核后")
             self.emit(event="log", msg="🔧 中控切换内核：%s → %s（v%s），矿工重启中" % (
                 old, KERNELS[key]["label"], new_v or "?"))
             self.emit(event="cfg_sync", kernel=key)
             return True, "内核已切换为 %s，矿工重启中（约 1 分钟恢复）" % KERNELS[key]["label"]
         if cmd == "restart_miner":
-            self._kill()  # 引擎主循环 10 秒内自动拉起
+            self.revive("中控重启矿工")   # 连熔断一起清掉，否则可能拉不起来
             return True, "矿工已重启"
         if cmd == "set_display_name":
             # 中控远程改名（R6 / D6）：静默保存，不弹窗打断用户
@@ -2548,6 +2551,34 @@ class MiningEngine:
             self.emit(event="log", msg="中控已重命名本机：%s → %s" % (old or "未设置", disp))
             return True, "显示名已更新为 %s" % disp
         return False, "未知命令: %s" % cmd
+
+    def revive(self, why=""):
+        """让引擎回到可挖矿状态：清熔断计数、必要时重新拉起监督线程。
+
+        内核升级失败会连续「启动即退出」，熔断后 _run 直接 return、监督线程结束，
+        之后即使换了内核也不会自己恢复，只能人工点「开始挖矿」。
+        中控切内核 / 升级内核 / 重启矿工后都调用这里。
+        """
+        self._fast_fails = 0
+        self.remote_stop = False
+        try:
+            self.stop_flag.clear()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self._kill(wait=3)
+        except Exception:  # noqa: BLE001
+            pass
+        alive_now = any(getattr(t, "is_alive", lambda: False)() for t in list(self._threads))
+        if not alive_now:
+            t = threading.Thread(target=self._run, daemon=True)
+            self._threads.append(t)
+            t.start()
+            self.emit(event="log", msg="引擎监督线程未在运行，已重新拉起（%s）"
+                      % (why or "手动恢复"))
+        if self.state == "error":
+            self.state = "stopped"
+        return True
 
     def _kill(self, wait=10):
         """结束矿工进程（幂等、可并发调用）。返回 True 表示确认已无残留。"""
@@ -2661,7 +2692,8 @@ class MiningEngine:
         api_port, api_type = k["api_port"], k["api_type"]
         cmd_ver = self._cfg_ver    # 启动命令对应的配置版本；中控改配置后会不等
         restarts = 0
-        fast_fails = 0        # 连续「启动即退出」次数，用于熔断，避免无意义地无限重启
+        fast_fails = getattr(self, "_fast_fails", 0)   # 连续「启动即退出」次数（熔断）
+        self._fast_fails = 0
 
         while not self.stop_flag.is_set():
             try:
@@ -2692,6 +2724,7 @@ class MiningEngine:
                         alive = time.time() - (getattr(self, "_proc_t0", 0) or time.time())
                         # 启动几十秒就退，算「起不来」；能跑满 1 分钟才算正常重启
                         fast_fails = (fast_fails + 1) if alive < 60 else 0
+                        self._fast_fails = fast_fails
                         restarts += 1
                         self.emit(event="log", msg="矿工进程退出(rc=%s)，%.0f 秒后自动拉起（第 %d 次）"
                                   % (rc, 10, restarts))
