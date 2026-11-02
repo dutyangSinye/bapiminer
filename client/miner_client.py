@@ -118,7 +118,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.9"
+CLIENT_VERSION = "1.13.0.11"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -1546,6 +1546,18 @@ def parse_gpu_rates(data, n):
     if n <= 0:
         return []
     found = {}
+    # SRBMiner 3.8.3+：algorithms[0].hashrate.gpu = {"gpu1": H/s, "gpu2": H/s, "total": ...}
+    try:
+        algs = data.get("algorithms") if isinstance(data, dict) else None
+        if isinstance(algs, list) and algs:
+            hr = (algs[0] or {}).get("hashrate") or {}
+            g = hr.get("gpu") if isinstance(hr.get("gpu"), dict) else {}
+            for k, v in g.items():
+                mt = re.match(r"gpu(\d+)$", str(k))
+                if mt and isinstance(v, (int, float)) and v > 0:
+                    found[int(mt.group(1)) - 1] = round(float(v) * 1e-12, 3)   # H/s → TH/s
+    except Exception:  # noqa: BLE001
+        pass
     for path, k, v in _flatten_hr(data):
         pl, kl = path.lower(), k.lower()
         if not (re.search(r"hashrate|hash_rate|performance", kl) or "hashrate" in pl):
@@ -1559,6 +1571,11 @@ def parse_gpu_rates(data, n):
         if val > 0:
             found[int(mt.group(1))] = val      # 后写覆盖前值：窗口越后越稳
     return [round(found.get(i, 0.0), 3) for i in range(n)]
+
+
+def s_ok(v):
+    """是不是有效数字（排除 bool / None / 字符串）。"""
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
 def parse_miner(api_type, data):
@@ -1581,6 +1598,22 @@ def parse_miner(api_type, data):
                                      if isinstance(x, (int, float)) and not isinstance(x, bool))
             elif isinstance(rv, (int, float)) and not isinstance(rv, bool):
                 m["rejected"] += int(rv)
+    # ---- SRBMiner 3.8.3+ 新结构：algorithms[{name, pool{pool,uptime}, shares{accepted,rejected}, hashrate{...}}]
+    algs = data.get("algorithms") if isinstance(data, dict) else None
+    if isinstance(algs, list) and algs and isinstance(algs[0], dict):
+        a0 = algs[0]
+        if m["algo"] is None and isinstance(a0.get("name"), str):
+            m["algo"] = a0["name"]
+        pl = a0.get("pool") if isinstance(a0.get("pool"), dict) else {}
+        if m["pool"] is None and isinstance(pl.get("pool"), str):
+            m["pool"] = pl["pool"]
+        if m["uptime"] is None and isinstance(pl.get("uptime"), (int, float)):
+            m["uptime"] = int(pl["uptime"])
+        sh = a0.get("shares") if isinstance(a0.get("shares"), dict) else {}
+        if s_ok(sh.get("accepted")):
+            m["accepted"] = int(sh["accepted"])
+        if s_ok(sh.get("rejected")):
+            m["rejected"] = int(sh["rejected"])
     # ---- 通用遍历（SRBMiner shares.accepted / BzMiner devices[].accepted 等格式）
     for _path, k, v in _walk(data):
         kl = k.lower()
@@ -2121,11 +2154,42 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
             url += "&rig=" + urllib.parse.quote(rig_name)
         if force:
             url += "&t=%d" % int(time.time())      # 绕过任何中间层缓存
-        zpath = os.path.join(kdir, "_dl_%s.zip" % kernel_key)
+        # 先下到系统临时目录：内核目录可能在拔掉的移动盘/网络盘上，
+        # 直接往那里写会 [Errno 22] 失败，而解压到内核目录只是本地复制。
+        import tempfile as _tf
+        zpath = os.path.join(_tf.gettempdir(),
+                             "_dl_%s_%d.zip" % (kernel_key, int(time.time())))
         if emit:
             emit(event="log", msg="⬇ 正在从中控获取 %s%s ..." % (
                 k.get("label") or kernel_key, " 最新版" if force else ""))
-        size = http_download(url, zpath, headers={"X-Rig-Token": token})
+        _silent_remove(zpath)          # 清掉上次中断留下的临时文件（可能被占/损坏）
+        try:
+            size = http_download(url, zpath, headers={"X-Rig-Token": token})
+        except OSError as e:
+            # 盘符拒绝创建文件（拔盘/盘符失效/杀软锁）时换名重试，再不行落到系统临时目录。
+            import tempfile
+            last = e
+            size = None
+            for p2 in (os.path.join(kdir, "_dl_%s_%d.zip" % (kernel_key, int(time.time()))),
+                       os.path.join(tempfile.gettempdir(),
+                                    "_dl_%s_%d.zip" % (kernel_key, int(time.time())))):
+                try:
+                    _silent_remove(p2)
+                    size = http_download(url, p2, headers={"X-Rig-Token": token})
+                    zpath = p2
+                    if emit:
+                        emit(event="log", msg="⚠ 内核目录不可写（%s），已改写到 %s" % (e, p2))
+                    break
+                except OSError as e2:
+                    last = e2
+            if size is None:
+                # 系统临时目录也不可写：最后退回内核目录再试一次
+                try:
+                    p3 = os.path.join(kdir, "_dl_%s_%d.zip" % (kernel_key, int(time.time())))
+                    size = http_download(url, p3, headers={"X-Rig-Token": token})
+                    zpath = p3
+                except OSError:
+                    return "内核包下载失败（磁盘无法写入）: %s" % last, cur_ver
         # ⚠ 只信清单里的哈希，不信响应头（X-Kernel-* 与文件出自同一台服务器）
         got_sha = exe_sha256(zpath)
         if got_sha != want_sha:
