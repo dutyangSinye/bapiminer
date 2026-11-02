@@ -16,6 +16,7 @@ import atexit
 import ctypes
 import ctypes.wintypes as _wt
 import hashlib
+import io
 import json
 import os
 import queue
@@ -118,7 +119,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.11"
+CLIENT_VERSION = "1.13.0.14"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -1704,6 +1705,15 @@ def http_download(url, dest, timeout=1800, headers=None, meta=None):
     return total
 
 
+def http_get_bytes(url, timeout=1800, headers=None):
+    """整包读进内存（内核 zip 最大 ~95MB），不做任何磁盘临时文件。"""
+    h = {"User-Agent": "bapiminer-client/1.0"}
+    h.update(headers or {})
+    req = urllib.request.Request(url, headers=h, method="GET")
+    with _open(req, timeout) as r:
+        return r.read()
+
+
 # ---------------------------------------------------------------- 客户端自更新
 # 中控 /api/client_latest 给出最新 exe 的 sha256；本机 exe 指纹不一致就静默替换重启。
 # 替换交给一个 cmd 脚本：用「旧 exe 能否改名」判断进程真正退出，比查 PID 稳。
@@ -2083,12 +2093,21 @@ def extract_kernel_zip(zpath, kernel_dir, exe_name, dest_dir=None):
         for f in os.listdir(src_root):
             src = os.path.join(src_root, f)
             dst = os.path.join(target_dir, f)
-            if os.path.isdir(src):
-                import shutil as _sh
-                _sh.copytree(src, dst, dirs_exist_ok=True)
-            else:
-                import shutil as _sh
-                _sh.copy2(src, dst)
+            # Windows 上目标文件可能仍被上个矿工进程占用（WinError 32）：
+            # 退避重试几次，别让整次升级白做。
+            for attempt in range(4):
+                try:
+                    if os.path.isdir(src):
+                        import shutil as _sh
+                        _sh.copytree(src, dst, dirs_exist_ok=True)
+                    else:
+                        import shutil as _sh
+                        _sh.copy2(src, dst)
+                    break
+                except OSError as e:
+                    if getattr(e, "winerror", None) != 32 or attempt == 3:
+                        raise
+                    time.sleep(1.5)
         return None
     except Exception as e:  # noqa: BLE001
         return "\u89e3\u538b\u5931\u8d25: %s" % e
@@ -2154,58 +2173,26 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
             url += "&rig=" + urllib.parse.quote(rig_name)
         if force:
             url += "&t=%d" % int(time.time())      # 绕过任何中间层缓存
-        # 先下到系统临时目录：内核目录可能在拔掉的移动盘/网络盘上，
-        # 直接往那里写会 [Errno 22] 失败，而解压到内核目录只是本地复制。
-        import tempfile as _tf
-        zpath = os.path.join(_tf.gettempdir(),
-                             "_dl_%s_%d.zip" % (kernel_key, int(time.time())))
         if emit:
             emit(event="log", msg="⬇ 正在从中控获取 %s%s ..." % (
                 k.get("label") or kernel_key, " 最新版" if force else ""))
-        _silent_remove(zpath)          # 清掉上次中断留下的临时文件（可能被占/损坏）
-        try:
-            size = http_download(url, zpath, headers={"X-Rig-Token": token})
-        except OSError as e:
-            # 盘符拒绝创建文件（拔盘/盘符失效/杀软锁）时换名重试，再不行落到系统临时目录。
-            import tempfile
-            last = e
-            size = None
-            for p2 in (os.path.join(kdir, "_dl_%s_%d.zip" % (kernel_key, int(time.time()))),
-                       os.path.join(tempfile.gettempdir(),
-                                    "_dl_%s_%d.zip" % (kernel_key, int(time.time())))):
-                try:
-                    _silent_remove(p2)
-                    size = http_download(url, p2, headers={"X-Rig-Token": token})
-                    zpath = p2
-                    if emit:
-                        emit(event="log", msg="⚠ 内核目录不可写（%s），已改写到 %s" % (e, p2))
-                    break
-                except OSError as e2:
-                    last = e2
-            if size is None:
-                # 系统临时目录也不可写：最后退回内核目录再试一次
-                try:
-                    p3 = os.path.join(kdir, "_dl_%s_%d.zip" % (kernel_key, int(time.time())))
-                    size = http_download(url, p3, headers={"X-Rig-Token": token})
-                    zpath = p3
-                except OSError:
-                    return "内核包下载失败（磁盘无法写入）: %s" % last, cur_ver
-        # ⚠ 只信清单里的哈希，不信响应头（X-Kernel-* 与文件出自同一台服务器）
-        got_sha = exe_sha256(zpath)
+        # ★ 全程内存处理：先读进内存、按清单哈希校验，再从 BytesIO 解压。
+        #   有现场机器只要创建 zip 临时文件就 [Errno 22]（H:\ 与 %TEMP% 都一样，
+        #   疑似安全软件/文件系统策略），落地临时文件这条路永远走不通。
+        raw = http_get_bytes(url, headers={"X-Rig-Token": token})
+        size = len(raw)
+        got_sha = hashlib.sha256(raw).hexdigest()
         if got_sha != want_sha:
-            _silent_remove(zpath)
             return ("内核包与签名清单不一致（收到 %s…，应为 %s…），已丢弃。\n"
                     "可能是中控缓存的 zip 与清单不同步，或下载链路被替换。"
                     % (got_sha[:12], want_sha[:12])), cur_ver
         if want_size and size != want_size:
-            _silent_remove(zpath)
             return ("内核包大小与清单不符（收到 %d，应为 %d 字节），已丢弃。"
                     % (size, want_size)), cur_ver
         if emit:
             emit(event="log", msg="⬇ 下载完成 %.1f MB（签名校验通过），解压中..." % (
                 size / 1048576.0))
         if force and want_ver and want_ver == cur_ver and os.path.isfile(exe_path):
-            _silent_remove(zpath)
             if emit:
                 emit(event="log", msg="✓ 已是最新版本 %s，无需覆盖" % cur_ver)
             return None, cur_ver
@@ -2214,8 +2201,7 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
                 os.replace(exe_path, exe_path + ".old")   # 允许改名运行中的 exe
             except OSError:
                 pass
-        err = extract_kernel_zip(zpath, kernel_dir, k["exe"], dest_dir=kdir)
-        _silent_remove(zpath)
+        err = extract_kernel_zip(io.BytesIO(raw), kernel_dir, k["exe"], dest_dir=kdir)
         if err:
             return err, cur_ver
         if not os.path.isfile(exe_path):
@@ -2522,7 +2508,9 @@ class MiningEngine:
             return True, "已恢复矿工"
         if cmd == "update_kernel":
             old_v = kernel_local_version(self.cfg["kernel"], self.cfg["kernel_dir"])
-            # 先停矿工：Windows 下运行中的 exe 虽可改名，但文件替换仍可能被锁
+            # 先停矿工：Windows 下运行中的 exe 虽可改名，但文件替换仍可能被锁。
+            # remote_stop 让主循环在升级期间别把矿工拉起来（否则解压会 WinError 32）。
+            self.remote_stop = True
             self._kill()
             time.sleep(1.5)
             err, new_v = ensure_kernel(self.cfg["kernel"], self.cfg["kernel_dir"],
@@ -2579,6 +2567,9 @@ class MiningEngine:
                 return False, "未知内核: %s（可用：%s）" % (key, "、".join(KERNELS))
             if key == self.cfg.get("kernel"):
                 return True, "已在使用内核 %s" % KERNELS[key]["label"]
+            self.remote_stop = True      # 切换期间别让主循环拉起矿工
+            self._kill()
+            time.sleep(1.0)
             err, new_v = ensure_kernel(key, self.cfg.get("kernel_dir") or "",
                                        self.cfg.get("server"), self.cfg.get("token"),
                                        emit=self.emit, rig_name=self.cfg.get("rig_name") or "",
