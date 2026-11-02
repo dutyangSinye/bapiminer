@@ -592,6 +592,18 @@ header{position:sticky;top:0;z-index:60;
   font-size:13px;outline:none;font-family:inherit;margin-bottom:12px;background:var(--card-2);transition:.15s}
 .modal-card input:focus{border-color:#9fd8c4;background:#fff;box-shadow:0 0 0 3px rgba(16,185,129,.12)}
 /* 用户管理表格 */
+.wtx{margin-left:8px;font-size:12px;color:var(--brand);cursor:pointer;text-decoration:none}
+.wtx:hover{text-decoration:underline}
+.txtab{width:100%;border-collapse:collapse;font-size:12.5px}
+.txtab th{text-align:left;color:var(--muted);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.txtab td{padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+.txtab tr:hover td{background:rgba(0,0,0,.02)}
+.txtab .amt{font-variant-numeric:tabular-nums;font-weight:600}
+.txtab .amt.in{color:var(--up)}
+.txtab .txid{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--muted)}
+.txtab a{color:var(--brand);text-decoration:none}
+.txtab a:hover{text-decoration:underline}
+
 .utab-hint{font-size:12px;color:var(--muted);padding:8px 2px 0}
 .utab-hint a{margin-left:8px;color:var(--brand);text-decoration:none}
 .utab{width:100%;border-collapse:collapse;font-size:12.5px}
@@ -797,6 +809,7 @@ footer .notes-body{text-align:left;padding:0 4px}
           <label class="chk"><input type="checkbox" id="fOffline" onchange="setOnlyOffline(this.checked)">只看离线</label>
       <label class="chk" title="折叠离线超 2 小时的矿机"><input type="checkbox" id="fShowAllOff" onchange="setShowAllOff(this.checked)">显示全部离线</label>
       <label class="chk" title="按钱包地址聚合"><input type="checkbox" id="fGroup" onchange="render()">按钱包分组</label>
+          <button class="btn mini" onclick="openWalletTx()" title="按钱包查看链上打款/转账明细（最近 50 笔）">💰 钱包交易</button>
       <label class="chk" title="只显示主信息，收起明细"><input type="checkbox" id="fCompact" onchange="setCompact(this.checked)">精简卡片</label>
       <span class="sep"></span>
       <button class="btn mini" onclick="selAll(1)">全选</button>
@@ -883,6 +896,20 @@ footer .notes-body{text-align:left;padding:0 4px}
     <div class="cfg-ft">
       <span class="cfg-hint">≤30 秒内下发，约 1 分钟恢复挖矿</span>
       <button class="btn" id="cfgSubmit" onclick="submitCfg()">下发</button>
+    </div>
+  </div>
+</div>
+
+<div class="mask" id="txMask" style="display:none" onclick="if(event.target===this)closeTx()">
+  <div class="cfg-panel" style="max-width:920px">
+    <div class="cfg-hd">💰 钱包交易明细<span class="cfg-sub" id="txSub"></span>
+      <button class="btn mini" onclick="closeTx()">✕ 关闭</button></div>
+    <div class="cfg-body">
+      <div class="cfg-row" style="align-items:center">
+        <select id="txWallet" onchange="loadWalletTx(this.value)"></select>
+        <span class="cfg-note" id="txNote" style="margin:0"></span>
+      </div>
+      <div id="txBody"></div>
     </div>
   </div>
 </div>
@@ -1628,6 +1655,7 @@ function renderRigs(list) {
     const onlineDot = online === rs.length ? 'on' : online ? 'mid' : 'off';
     out.push(`<div class="wgroup-hd"><span class="dot ${onlineDot}"></span>` +
       `<span class="wm" title="${k === '_none' ? '' : esc(k)}">${label}</span>` +
+      (k === '_none' ? '' : `<span class="wtx" onclick="openWalletTx('${esc(k)}')" title="查看该钱包的链上交易">交易明细</span>`) +
       `<span class="sep2"></span>` +
       `<span class="tag">${coin}</span>` +
       `<span class="tag">${rs.length} 台 · ${online} 在线</span>` +
@@ -2028,6 +2056,72 @@ async function renameRig(rig, cur) {
   } catch (e) {
     alert('改名失败：' + e.message);
   }
+}
+
+/* ---------- 钱包交易明细 ---------- */
+function txWallets() {
+  const seen = new Map();
+  ((S.fleet && S.fleet.rigs) || []).forEach(r => {
+    const w = (r.wallet && r.wallet.wallet) || '';
+    if (!w) return;
+    if (!seen.has(w)) seen.set(w, []);
+    seen.get(w).push(r.name);
+  });
+  return Array.from(seen.entries());
+}
+
+function openWalletTx(wallet) {
+  const list = txWallets();
+  if (!list.length) { alert('还没有矿机绑定钱包'); return; }
+  const sel = $('txWallet');
+  sel.innerHTML = list.map(([w, rigs]) =>
+    `<option value="${esc(w)}">${esc(maskWallet(w))} · ${rigs.length} 台</option>`).join('');
+  const pick = wallet || list[0][0];
+  sel.value = list.some(([w]) => w === pick) ? pick : list[0][0];
+  $('txMask').style.display = 'flex';
+  $('txBody').innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">加载中…</div>';
+  loadWalletTx($('txWallet').value);
+}
+
+function closeTx() { $('txMask').style.display = 'none'; }
+
+async function loadWalletTx(wallet) {
+  const body = $('txBody'), note = $('txNote'), sub = $('txSub');
+  if (!wallet) return;
+  sub.textContent = '· ' + maskWallet(wallet);
+  body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--muted)">加载中…</div>';
+  let d;
+  try {
+    d = await api('/api/wallet_txs?wallet=' + encodeURIComponent(wallet) + '&limit=50');
+  } catch (e) {
+    body.innerHTML = `<div style="padding:16px;color:var(--down)">加载失败：${esc(e.message)}</div>`;
+    return;
+  }
+  if (!d.ok) {
+    body.innerHTML = `<div style="padding:16px;color:var(--down)">${esc(d.error || '失败')}</div>`;
+    return;
+  }
+  const items = d.items || [];
+  const pu = d.prl_usd || 0, rc = d.cny_rate || 0;
+  const totalIn = items.filter(x => x.direction === 'in').reduce((a, x) => a + x.amount, 0);
+  note.textContent = `共 ${items.length} 笔 · 收到 ${num(totalIn, 4)} PRL` +
+    (pu && rc ? ` ≈ ¥${num(totalIn * pu * rc, 2)}（按现价 ${num(pu, 4)}）` : '') +
+    ' · 每分钟缓存';
+  if (!items.length) { body.innerHTML = '<div style="padding:16px;color:var(--muted)">该钱包暂无链上交易</div>'; return; }
+  const rows = items.map(x => {
+    const t = new Date(x.ts * 1000).toLocaleString('zh-CN', { hour12: false });
+    const cny = (pu && rc && x.direction === 'in') ? `¥${num(x.amount * pu * rc, 2)}` : '—';
+    const txid = esc(x.txid || '');
+    return `<tr><td>${esc(t)}</td>` +
+      `<td>${esc(x.pool || x.type_label || '—')}</td>` +
+      `<td class="amt ${x.direction === 'in' ? 'in' : ''}">${x.direction === 'in' ? '+' : '-'}${num(x.amount || x.sent, 4)} PRL</td>` +
+      `<td>${cny}</td>` +
+      `<td>${x.block_height || '—'}</td>` +
+      `<td class="txid"><a href="https://prlscan.com/tx/${txid}" target="_blank" rel="noopener">${txid.slice(0, 10)}…</a></td></tr>`;
+  }).join('');
+  body.innerHTML = `<div style="max-height:60vh;overflow:auto">
+    <table class="txtab"><thead><tr><th>时间</th><th>来源</th><th>金额</th><th>折合</th><th>区块</th><th>交易</th></tr></thead>
+    <tbody>${rows}</tbody></table></div>`;
 }
 
 /* ---------- 管理员：用户管理 ---------- */

@@ -1434,6 +1434,7 @@ def rate_meta_for(model):
 # 恒为 0），而矿机一直全速在挖、链上每 ~4 小时准时打款。以链口为准，与钱包页面
 # （prlscan.com）看到的数字一致；balance 接口仍然实时，继续用于「矿池未支付」。
 
+_wallet_tx_cache = {}     # wallet -> (ts, [交易])
 _wallet_lock = threading.Lock()
 _wallet_map = {}   # rig -> {coin, wallet, total, confirmed, unconfirmed, threshold, pct, last_active, ts}
 _wallet_ts = 0.0
@@ -3079,6 +3080,59 @@ class Handler(BaseHTTPRequestHandler):
                 "FROM users u ORDER BY u.id").fetchall()
             return self._json({"ok": True, "users": [user_public(r) | {"rig_count": r["rig_count"]}
                                                      for r in rows]})
+
+        if p == "/api/wallet_txs":
+            # 钱包链上交易明细（prlscan）。只允许看自己名下矿机的钱包。
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            wallet = (q.get("wallet") or [""])[0].strip()
+            if not wallet:
+                return self._json({"ok": False, "error": "缺少 wallet 参数"}, 400)
+            try:
+                limit = max(1, min(200, int((q.get("limit") or ["50"])[0])))
+            except (TypeError, ValueError):
+                limit = 50
+            c = db()
+            rows = c.execute("SELECT name FROM rigs WHERE wallet=?", (wallet,)).fetchall()
+            if not rows:
+                return self._json({"ok": False, "error": "该钱包没有绑定矿机"}, 404)
+            if not auth.get("is_admin"):
+                vis = set(visible_rig_names(auth))
+                if not any(r["name"] in vis for r in rows):
+                    return self._json({"ok": False, "error": "无权查看该钱包"}, 403)
+            now = time.time()
+            hit = _wallet_tx_cache.get(wallet)
+            if hit and now - hit[0] < 60 and len(hit[1]) >= limit:
+                items = hit[1][:limit]
+            else:
+                try:
+                    raw = wallet_chain_txs("prl", wallet, pages=1)
+                except Exception as e:  # noqa: BLE001
+                    return self._json({"ok": False, "error": "链上接口失败：%s" % e}, 502)
+                items = []
+                for t in raw:
+                    try:
+                        amt = float(t.get("received_grains") or 0) / 1e8
+                        sent = float(t.get("sent_grains") or 0) / 1e8
+                        dt = datetime.strptime((t.get("time") or "")[:19], "%Y-%m-%dT%H:%M:%S")
+                        ts = dt.replace(tzinfo=timezone.utc).timestamp()
+                    except (TypeError, ValueError, AttributeError):
+                        continue
+                    items.append({
+                        "ts": ts, "time": t.get("time") or "",
+                        "amount": round(amt, 8), "sent": round(sent, 8),
+                        "direction": "in" if amt >= sent else "out",
+                        "delta": round(amt - sent, 8),
+                        "pool": (tx_pool(t)[1]), "pool_id": tx_pool(t)[0],
+                        "type_label": t.get("type_label") or "",
+                        "txid": t.get("txid") or "", "block_height": t.get("block_height"),
+                        "status": t.get("status") or "", "is_coinbase": bool(t.get("is_coinbase")),
+                    })
+                items.sort(key=lambda x: -x["ts"])
+                _wallet_tx_cache[wallet] = (now, items)
+            return self._json({"ok": True, "wallet": wallet, "items": items[:limit],
+                               "prl_usd": coin_usd(), "cny_rate": rate_cny()})
 
         if p == "/api/rigs":
             # 矿机列表（按权限过滤）
