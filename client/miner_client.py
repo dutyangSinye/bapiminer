@@ -119,7 +119,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.14"
+CLIENT_VERSION = "1.13.0.15"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -1705,13 +1705,26 @@ def http_download(url, dest, timeout=1800, headers=None, meta=None):
     return total
 
 
-def http_get_bytes(url, timeout=1800, headers=None):
-    """整包读进内存（内核 zip 最大 ~95MB），不做任何磁盘临时文件。"""
+def http_get_bytes(url, timeout=180, headers=None, deadline=240):
+    """整包读进内存（内核 zip 最大 ~95MB），不做任何磁盘临时文件。
+
+    ★ 必须有「总时限」：只设 socket timeout 时，连接若一直慢慢滴数据就不会触发，
+      实测把 update_kernel 卡了半小时，命令轮询线程被占住，后续命令全变 pending。
+    """
     h = {"User-Agent": "bapiminer-client/1.0"}
     h.update(headers or {})
     req = urllib.request.Request(url, headers=h, method="GET")
+    end = time.time() + max(30, deadline)
+    buf = []
     with _open(req, timeout) as r:
-        return r.read()
+        while True:
+            if time.time() > end:
+                raise OSError("下载超时（超过 %d 秒）" % deadline)
+            b = r.read(1 << 16)
+            if not b:
+                break
+            buf.append(b)
+    return b"".join(buf)
 
 
 # ---------------------------------------------------------------- 客户端自更新
@@ -2179,7 +2192,20 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
         # ★ 全程内存处理：先读进内存、按清单哈希校验，再从 BytesIO 解压。
         #   有现场机器只要创建 zip 临时文件就 [Errno 22]（H:\ 与 %TEMP% 都一样，
         #   疑似安全软件/文件系统策略），落地临时文件这条路永远走不通。
-        raw = http_get_bytes(url, headers={"X-Rig-Token": token})
+        raw = None
+        last_err = None
+        for _attempt in range(3):
+            try:
+                raw = http_get_bytes(url, headers={"X-Rig-Token": token})
+                break
+            except Exception as e:  # noqa: BLE001  IncompleteRead / 超时 / 连接重置
+                last_err = e
+                if emit:
+                    emit(event="log", msg="⚠ 内核下载中断（第 %d 次）：%s，重试中…"
+                         % (_attempt + 1, str(e)[:80]))
+                time.sleep(2 + _attempt * 3)
+        if raw is None:
+            return "内核包下载失败：%s" % str(last_err)[:120], cur_ver
         size = len(raw)
         got_sha = hashlib.sha256(raw).hexdigest()
         if got_sha != want_sha:
@@ -2513,11 +2539,16 @@ class MiningEngine:
             self.remote_stop = True
             self._kill()
             time.sleep(1.5)
-            err, new_v = ensure_kernel(self.cfg["kernel"], self.cfg["kernel_dir"],
-                                       self.cfg.get("server"), self.cfg.get("token"),
-                                       emit=self.emit,
-                                       rig_name=self.cfg.get("rig_name") or "",
-                                       force=True, cfg=self.cfg)
+            try:
+                err, new_v = ensure_kernel(self.cfg["kernel"], self.cfg["kernel_dir"],
+                                           self.cfg.get("server"), self.cfg.get("token"),
+                                           emit=self.emit,
+                                           rig_name=self.cfg.get("rig_name") or "",
+                                           force=True, cfg=self.cfg)
+            except Exception as e:  # noqa: BLE001  任何异常都不能把矿工锁在停止态
+                err, new_v = "内核更新异常：%s" % str(e)[:120], old_v
+            finally:
+                self.remote_stop = False
             if err:
                 self.emit(event="log", msg="✕ 内核更新失败：%s" % err)
                 self.revive("内核更新失败后")   # 别把矿工停在已停状态
@@ -2863,7 +2894,7 @@ class MiningEngine:
                     "wallet": _rate_cache.get("wallet"),
                     "error": mi.get("error"),
                     "gamemode": bool(hold),
-                    "game_proc": self.game_proc if hold else None,
+                    "game_proc": self.game_proc if self.paused else None,
                 })
                 self.emit(event="stats", **self.stats)
 
@@ -2879,8 +2910,9 @@ class MiningEngine:
                                       "client_version": CLIENT_VERSION,
                                       "hostname": socket.gethostname(),
                                       "ts": time.time(),
-                                      "game_mode": bool(hold),
-                                      "game_proc": self.game_proc if hold else None,
+                                      "game_mode": bool(self.paused),
+                                      "remote_stop": bool(self.remote_stop),
+                                      "game_proc": self.game_proc if self.paused else None,
                                       "kernel": self.cfg.get("kernel"),
                                       "kernel_ver": self.kernel_ver or kernel_local_version(
                                           self.cfg.get("kernel"), self.cfg.get("kernel_dir") or ""),

@@ -1458,7 +1458,8 @@ function rigCard(r) {
         <div class="big"><b>${num(s.ths, 1)}</b><span>TH/s</span></div>
         ${(s.model || gm) ? `<div class="sum-sub" title="${s.model ? esc(s.model) : ''}">${[
           s.model ? esc(s.model).replace('NVIDIA GeForce ', '') : '',
-          gm ? '⏸ 让卡中' + (s.game_proc ? '（' + esc(s.game_proc) + '）' : '') : ''
+          gm ? '⏸ 让卡中' + (s.game_proc ? '（' + esc(s.game_proc) + '）' : '')
+             : (r.remote_stop ? '⏹ 已停止（中控）' : '')
         ].filter(Boolean).join(' · ')}</div>` : ''}
       </div>
       <div class="sum-tags">${incomeChip}${walletChip}</div>
@@ -1466,6 +1467,7 @@ function rigCard(r) {
     <div class="rig-detail" data-rig-detail="${nm}" ${compact && !expanded ? 'hidden' : ''}>
       <div class="rig-tags">
         ${gm ? '<span class="tag gm">🎮 游戏模式</span>' : ''}
+        ${r.remote_stop && !gm ? '<span class="tag" style="background:#fdecea;color:#b3261e">⏹ 中控已停止</span>' : ''}
         <span class="tag miner ${mAlive ? '' : 'dead'}">${esc(m0.type || 'miner')} ${mAlive ? '' : '✕ 未响应'}</span>
         ${kernelTag(r)}${clientVerTag(r)}${conflictTag}
       </div>

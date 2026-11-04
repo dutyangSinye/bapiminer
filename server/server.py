@@ -293,6 +293,10 @@ CREATE TABLE IF NOT EXISTS alerts(
     # 游戏模式标记（网吧式让卡），老库自动补列
     try:
         c.execute("ALTER TABLE rigs ADD COLUMN game_mode INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE rigs ADD COLUMN remote_stop INTEGER DEFAULT 0")
         c.commit()
         print("[db] rigs 表新增 game_mode 列")
     except Exception:  # noqa: BLE001
@@ -1957,6 +1961,9 @@ def handle_report(payload, client_ip=""):
         print("[rig] 重新绑定接入码：%s（上报认领）" % name)
     old_gm = int((row["game_mode"] if row is not None else 0) or 0)
     gm = 1 if payload.get("game_mode") else 0
+    # 新版客户端单独上报 remote_stop（中控停止）；老版没有该字段，
+    # 它把「停止」也算进 game_mode，所以这里只存不算。
+    rs = 1 if payload.get("remote_stop") else 0
 
     gpus = payload.get("gpus") or []
     miners = payload.get("miners") or []
@@ -2001,13 +2008,13 @@ def handle_report(payload, client_ip=""):
     }
     with _db_lock:
         c.execute(
-            "UPDATE rigs SET last_seen=?, last_report=?, status='online', offline_since=NULL, game_mode=?, "
+            "UPDATE rigs SET last_seen=?, last_report=?, status='online', offline_since=NULL, game_mode=?, remote_stop=?, "
             "wallet=CASE WHEN ?<>'' THEN ? ELSE wallet END, "
             "client_version=CASE WHEN ?<>'' THEN ? ELSE client_version END, "
             "pool_url=CASE WHEN ?<>'' THEN ? ELSE pool_url END, "
             "display_name=CASE WHEN ?<>'' THEN ? ELSE display_name END, "
             "last_ip=CASE WHEN ?<>'' THEN ? ELSE last_ip END WHERE name=?",
-            (time.time(), json.dumps(snap, ensure_ascii=False), gm,
+            (time.time(), json.dumps(snap, ensure_ascii=False), gm, rs,
              str(payload.get("wallet") or "").strip(), str(payload.get("wallet") or "").strip(),
              str(payload.get("client_version") or "").strip(),
              str(payload.get("client_version") or "").strip(),
@@ -2157,6 +2164,7 @@ def fleet_payload(auth=None):
             "last_seen": r["last_seen"],
             "offline_since": r["offline_since"],
             "game_mode": r_gm,
+            "remote_stop": bool(r["remote_stop"]) if "remote_stop" in r.keys() else False,
             "client_version": (r["client_version"] if "client_version" in r.keys()
                                else "") or (snap or {}).get("client_version") or "",
             "pool_url": (r["pool_url"] if "pool_url" in r.keys()
