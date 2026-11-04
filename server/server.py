@@ -3664,13 +3664,24 @@ class Handler(BaseHTTPRequestHandler):
                 targets = [rig]
             if not targets:
                 return self._json({"ok": False, "error": "没有可操作的矿机"}, 400)
+            skipped = []
+            if cmd in ("update_kernel", "update_client"):
+                # 这两条命令只对在线矿机下发：离线机器收到只会挂一条永远 pending
+                # 的命令，等它以后开机还会突然自己升级/换内核。
+                online = {r["name"] for r in c.execute(
+                    "SELECT name FROM rigs WHERE status='online'").fetchall()}
+                skipped = sorted(set(targets) - online)
+                targets = [t for t in targets if t in online]
+                if not targets:
+                    return self._json({"ok": False, "skipped": skipped,
+                                       "error": "选中矿机全部离线，%s 只对在线矿机下发" % cmd}, 400)
             with _db_lock:
                 for t in targets:
                     c.execute("INSERT INTO commands(rig,cmd,arg,created) VALUES(?,?,?,?)",
                               (t, cmd, json.dumps(arg), time.time()))
                 c.commit()
             print("[cmd] 已下发 %s -> %s" % (cmd, "全部(%d台)" % len(targets) if rig == "*" else rig))
-            return self._json({"ok": True, "targets": targets})
+            return self._json({"ok": True, "targets": targets, "skipped": skipped})
 
         if p == "/api/alerts/resolve":
             body = self._read_json()

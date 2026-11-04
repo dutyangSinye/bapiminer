@@ -2206,9 +2206,25 @@ function selAll(on) {
   if (on) (S.fleet ? S.fleet.rigs : []).forEach(r => SEL.add(r.name));
   render();
 }
+// 只对在线矿机有意义的命令：发给离线机器只会挂一条永远 pending 的命令，
+// 等它哪天开机还会莫名其妙地突然升级/换内核。
+const ONLINE_ONLY_CMDS = { update_kernel: 1, update_client: 1 };
+
 async function batchCmd(cmd) {
-  const targets = Array.from(SEL);
+  let targets = Array.from(SEL);
   if (!targets.length) { alert('请先勾选要操作的矿机（卡片左上角复选框，或点「全选」）。'); return; }
+  let skipped = [];
+  if (ONLINE_ONLY_CMDS[cmd]) {
+    const online = new Set(((S.fleet && S.fleet.rigs) || [])
+      .filter(r => r.status === 'online').map(r => r.name));
+    skipped = targets.filter(t => !online.has(t));
+    targets = targets.filter(t => online.has(t));
+    if (!targets.length) {
+      alert(`选中的 ${skipped.length} 台矿机全部离线：`
+        + `「${cmd === 'update_kernel' ? '更新内核' : '升级客户端'}」只对在线矿机下发。`);
+      return;
+    }
+  }
   const tips = {
     restart_miner: '批量重启选中矿机的矿工进程',
     start_miner: '批量启动选中矿机挖矿',
@@ -2218,7 +2234,9 @@ async function batchCmd(cmd) {
     update_kernel: '从群控下载最新挖矿内核并重启矿工',
     update_client: '把选中矿机的客户端升级到群控上的最新版本（矿机自下载、校验、替换后自动重启，约 30 秒）',
   };
-  if (!confirm(`${tips[cmd] || cmd}\n\n目标（${targets.length} 台）：\n${targets.join('、')}`)) return;
+  const skipNote = skipped.length
+    ? `\n\n已跳过 ${skipped.length} 台离线：${skipped.join('、')}` : '';
+  if (!confirm(`${tips[cmd] || cmd}\n\n目标（${targets.length} 台，仅在线）：\n${targets.join('、')}${skipNote}`)) return;
   let ok = 0, fail = 0;
   for (const rig of targets) {
     try {
@@ -2227,7 +2245,8 @@ async function batchCmd(cmd) {
       ok++;
     } catch (e) { fail++; }
   }
-  alert(`命令 ${cmd} 已下发：成功 ${ok} 台${fail ? '，失败 ' + fail + ' 台' : ''}。矿机端将在轮询周期（≤30 秒）执行。`);
+  alert(`命令 ${cmd} 已下发：成功 ${ok} 台${fail ? '，失败 ' + fail + ' 台' : ''}`
+    + `${skipped.length ? `，跳过 ${skipped.length} 台离线` : ''}。矿机端将在轮询周期（≤30 秒）执行。`);
 }
 async function batchKernel(name) {
   const item = ((S.kernels && S.kernels.catalog) || {})[name] || {};
@@ -2239,8 +2258,10 @@ async function batchKernel(name) {
     //   结果是 WildRig 机器永远显示「可更新」，而实际下发后升级的是
     //   它自己当前的内核（对用户来说就是「没升级」）。
     if (kernelShort(s.kernel) !== name) return false;
-    // 版本比较同样要归一化（群控目录里 bzminer 版本带 v 前缀）
-    return kernelVerNum(s.kernel_ver) !== kernelVerNum(item.version);
+    if (r.status !== 'online') return false;          // 只升在线矿机
+    // 版本比较按「签名清单」口径（上游新版未签发时点升级不会生效）
+    const tv = (((S.kernels || {}).signed || {})[name]) || item.version;
+    return kernelVerNum(s.kernel_ver) !== kernelVerNum(tv);
   }).map(r => r.name);
   if (!targets.length) { alert('该内核下没有需要升级的矿机。'); return; }
   if (!confirm(`把 ${targets.length} 台矿机升级到 ${item.label || name} ${item.version || ''}？\n\n${targets.join('、')}\n\n矿机端会：暂停矿工 → 从群控下载新内核 → 覆盖安装 → 自动重启挖矿，约 1-2 分钟。`)) return;
