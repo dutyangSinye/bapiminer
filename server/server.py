@@ -2714,16 +2714,63 @@ def kernel_download(name):
     return None, "所有下载源均失败: %s" % err
 
 
+_KERNEL_SHA_CACHE = {}      # path -> (mtime, sha256)
+
+
+def _cached_sha(path):
+    """缓存 zip 的 sha256（按 mtime 失效），供签发工具直接取用。"""
+    try:
+        mt = os.path.getmtime(path)
+    except OSError:
+        return ""
+    hit = _KERNEL_SHA_CACHE.get(path)
+    if hit and hit[0] == mt:
+        return hit[1]
+    try:
+        h = hashlib.sha256()
+        with open(path, "rb") as f:
+            for b in iter(lambda: f.read(1 << 20), b""):
+                h.update(b)
+        val = h.hexdigest()
+    except OSError:
+        return ""
+    _KERNEL_SHA_CACHE[path] = (mt, val)
+    return val
+
+
 def kernel_payload():
     cached = []
     try:
         for f in sorted(os.listdir(KERNEL_DIR)):
             if f.endswith(".zip"):
-                cached.append({"file": f, "size": os.path.getsize(os.path.join(KERNEL_DIR, f))})
+                p = os.path.join(KERNEL_DIR, f)
+                cached.append({"file": f, "size": os.path.getsize(p),
+                               "sha256": _cached_sha(p)})
     except OSError:
         pass
+    # 清单里实际签发的版本 —— 客户端能升级到的上限就是它。
+    # 上游自动下载的新版如果没签发，客户端会认为「已是最新」，
+    # 这里显式标成 pending，避免看板显示「可更新」却点了不动。
+    signed, pending = {}, {}
+    path = (globals().get("MANIFEST_FILE") or globals().get("SIGNED_MANIFEST")
+            or os.path.join(DATA_DIR, "signed_manifest.json"))
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            doc = json.load(f)
+        for n, v in (doc.get("kernels") or {}).items():
+            signed[n] = (v or {}).get("version") or ""
+    except (OSError, ValueError):
+        pass
+    for name, meta in (_kernel_meta["catalog"] or {}).items():
+        latest = (meta or {}).get("version") or ""
+        cur = signed.get(name) or ""
+        if latest and cur and latest != cur:
+            pending[name] = {
+                "latest": latest, "signed": cur,
+                "downloaded": os.path.isfile(os.path.join(KERNEL_DIR, "%s-%s.zip" % (name, latest))),
+            }
     return {"ok": True, "checked": _kernel_meta["checked"], "catalog": _kernel_meta["catalog"],
-            "cached": cached}
+            "cached": cached, "signed": signed, "pending": pending}
 
 
 def daily_payload(days=30, auth=None):

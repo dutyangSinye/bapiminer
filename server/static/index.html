@@ -1332,12 +1332,28 @@ function kernelVerNum(v) {
 function kernelTag(r) {
   const s = r.snapshot || {};
   const cat = (S.kernels && S.kernels.catalog) || {};
+  const signed = (S.kernels && S.kernels.signed) || {};
+  const pending = (S.kernels && S.kernels.pending) || {};
   const key = kernelShort(s.kernel);
   const item = cat[key];
   // 版本号归一化：容忍 "v0.51.7" / "0.51.7 " 之类差异，只比数字部分
   const norm = v => kernelVerNum(v);
   const cur = norm(s.kernel_ver);
   if (!cur) return '<span class="tag" style="background:#fff3d6;color:#8a5b00" title="旧版客户端未上报内核版本">内核版本未知 · 建议升级</span>';
+  const sgn = norm(signed[key]);
+  // ① 比签名清单旧：点「升级内核」真的能升
+  if (sgn && sgn !== cur) {
+    return `<span class="tag" style="background:#fff3d6;color:#8a5b00" `
+      + `title="签名清单 ${esc(signed[key])}，点「升级内核」即可升到该版本">内核 ${esc(cur)} ↑${esc(signed[key])}</span>`;
+  }
+  // ② 已是最新（清单口径），但上游有新版还没签发 —— 以前这里误显示「可更新」
+  const p = pending[key];
+  if (p && norm(p.latest) && norm(p.latest) !== cur) {
+    return `<span class="tag" style="background:#eef2ff;color:#3b4fd6" `
+      + `title="上游 ${esc(p.latest)} 已下载到中控，但签名清单仍为 ${esc(p.signed)}：`
+      + `需发布者签发后才可升级（点「升级内核」不会生效）">`
+      + `内核 ${esc(cur)} · ${esc(p.latest)} 待签发</span>`;
+  }
   if (item && norm(item.version) && norm(item.version) !== cur) {
     return `<span class="tag" style="background:#fff3d6;color:#8a5b00" title="群控最新 ${esc(item.version)}">内核 ${esc(cur)} ↑可更新</span>`;
   }
@@ -1863,9 +1879,12 @@ function render() {
   const K = S.kernels;
   if (K && K.catalog && Object.keys(K.catalog).length) {
     $('kernelBox').style.display = 'block';
-    $('kernelChecked').textContent = K.checked
-      ? new Date(K.checked * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' 检查'
-      : '';
+    const _pendTags = Object.entries(K.pending || {}).map(([n, p]) =>
+      `<span class="tag" style="background:#eef2ff;color:#3b4fd6;margin-left:6px" `
+      + `title="已下载但未签发，点升级不会生效">${esc(n)} ${esc(p.latest)} 待签发</span>`).join('');
+    $('kernelChecked').innerHTML = (K.checked
+      ? esc(new Date(K.checked * 1000).toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) + ' 检查')
+      : '') + _pendTags;
     $('kernelList').innerHTML = Object.entries(K.catalog).map(([name, k]) => {
       const cached = (K.cached || []).filter(c => c.file.startsWith(name + '-'));
       const users = f.rigs.filter(r => {
@@ -1874,10 +1893,18 @@ function render() {
       });
       // ★ 版本比较要归一化（bzminer 目录版本带 v 前缀），且归属该内核的机器
       //   才算「需升级」—— 之前没按内核过滤，WildRig 机器会被算进 srbminer 行。
+      // 能不能升，按「签名清单」算而不是按上游目录算 —— 上游新版没签发时点升级不会生效
+      const signedV = ((K.signed || {})[name]) || "";
+      const targetV = signedV || k.version;
+      const pend = (K.pending || {})[name] || null;
+      const pendingRow = pend
+        ? `<span class="tag" style="background:#eef2ff;color:#3b4fd6" title="运行 tools/kernel_release.py 签发后即可升级">`
+          + `上游 ${esc(pend.latest)} 待签发${pend.downloaded ? '（已下载）' : '（未下载）'}</span>`
+        : '';
       const stale = users.filter(r => {
         const s = r.snapshot || {};
         if (kernelShort(s.kernel) !== name) return false;
-        return kernelVerNum(s.kernel_ver) !== kernelVerNum(k.version);
+        return kernelVerNum(s.kernel_ver) !== kernelVerNum(targetV);
       });
       const pct = users.length
         ? `<span class="tag" style="background:${stale.length ? '#fff3d6' : '#e8f7ee'};color:${stale.length ? '#8a5b00' : '#1a7f47'}">${users.length - stale.length}/${users.length} 台已是最新</span>`
@@ -1889,6 +1916,7 @@ function render() {
         <span class="tag">${cached.length ? 'NAS 已缓存' : '下发时现下'}</span>
         ${pct}
         <span style="flex:1"></span>
+        ${pendingRow}
         ${stale.length ? `<button class="btn mini" onclick="batchKernel('${esc(name)}')">⬆ 升级 ${stale.length} 台</button>` : ''}
         <button class="btn mini" onclick="batchCmd('update_kernel')">⬇ 更新选中矿机</button>
       </div>`;
