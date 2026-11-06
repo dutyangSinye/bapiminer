@@ -47,6 +47,7 @@ import hashlib
 import hmac
 import json
 import os
+import shutil
 import re
 import secrets
 import sqlite3
@@ -2577,6 +2578,13 @@ def kernel_check():
                     "checked": time.time(),
                 }
                 print("[kernel] %s 最新版 %s (%s)" % (name, rel.get("tag_name"), asset["name"]))
+                # 新版本没有缓存就后台下载，签发时才有包可签
+                _zh = os.path.join(KERNEL_DIR, "%s-%s.zip" % (name, _kernel_meta["catalog"][name]["version"]))
+                if not (os.path.exists(_zh) and os.path.getsize(_zh) > 1_000_000):
+                    try:
+                        _prefetch_async(name)
+                    except NameError:      # 定义顺序兜底
+                        pass
         except Exception as e:  # noqa: BLE001
             print("[kernel] 检查 %s 失败: %s" % (name, e))
     _kernel_meta["checked"] = time.time()
@@ -2684,17 +2692,21 @@ def kernel_download(name):
     dest = os.path.join(KERNEL_DIR, "%s-%s.zip" % (name, meta["version"]))
     if os.path.exists(dest) and os.path.getsize(dest) > 1_000_000:
         return dest, None
-    err = None
-    # 先用「已经缓存好的旧版本」兜底：源站不可达/没下完时，
-    # 让矿机拿到能跑的内核，而不是直接报错开不了挖。
-    def _cached_fallback():
-        cands = sorted(glob.glob(os.path.join(KERNEL_DIR, "%s-*.zip" % name)),
-                       key=os.path.getmtime, reverse=True)
-        for p in cands:
-            if os.path.getsize(p) > 1_000_000:
-                return p
-        return None
+    return _download_to(name, meta, dest)
 
+
+def _cached_fallback(name):
+    cands = sorted(glob.glob(os.path.join(KERNEL_DIR, "%s-*.zip" % name)),
+                   key=os.path.getmtime, reverse=True)
+    for p in cands:
+        if os.path.getsize(p) > 1_000_000:
+            return p
+    return None
+
+
+def _download_to(name, meta, dest):
+    """真正去源站/镜像下载 zip 并校验落盘。返回 (路径, 错误)。"""
+    err = None
     for m in GH_MIRRORS:
         url = m + meta["url"] if m else meta["url"]
         try:
@@ -2715,11 +2727,41 @@ def kernel_download(name):
         except Exception as e:  # noqa: BLE001
             err = e
             print("[kernel] 源失败 %s: %s" % (url[:70] or "direct", e))
-    fb = _cached_fallback()
+    fb = _cached_fallback(name)
     if fb:
         print("[kernel] 源站失败，改用已缓存版本 %s 兜底" % os.path.basename(fb), flush=True)
         return fb, None
     return None, "所有下载源均失败: %s" % err
+
+
+def kernel_prefetch(name):
+    """把「上游最新版」下到缓存，和签名清单无关。
+
+    以前只有矿机来取包时才下载，于是上游发新版后看板一直显示「未下载」，
+    也就没法签发。检查更新时顺手把它下好，签发就只剩一条命令。
+    """
+    meta = _kernel_meta["catalog"].get(name)
+    if not meta or not meta.get("version"):
+        return None, "尚无 %s 版本信息" % name
+    os.makedirs(KERNEL_DIR, exist_ok=True)
+    dest = os.path.join(KERNEL_DIR, "%s-%s.zip" % (name, meta["version"]))
+    if os.path.exists(dest) and os.path.getsize(dest) > 1_000_000:
+        return dest, None
+    return _download_to(name, meta, dest)
+
+
+def _prefetch_async(name):
+    def _run():
+        try:
+            p, err = kernel_prefetch(name)
+            if p:
+                print("[kernel] 已预下载 %s（%d 字节）" % (os.path.basename(p), os.path.getsize(p)),
+                      flush=True)
+            else:
+                print("[kernel] 预下载 %s 失败: %s" % (name, err), flush=True)
+        except Exception as e:  # noqa: BLE001
+            print("[kernel] 预下载 %s 异常: %s" % (name, e), flush=True)
+    threading.Thread(target=_run, daemon=True, name="kernel-prefetch-%s" % name).start()
 
 
 _KERNEL_SHA_CACHE = {}      # path -> (mtime, sha256)
@@ -3397,6 +3439,45 @@ class Handler(BaseHTTPRequestHandler):
         #   会与下一个请求行拼接，产生非法 method 并回 501 HTML。
         #   这里先把 body 读进缓存，各路由再用 _read_json() 取（只解析一次）。
         self._read_raw_body()
+
+        if p == "/api/signed_manifest":
+            # 管理员上传已签名清单（本地签发工具用）。只做结构校验：
+            # 真正的信任在客户端 —— 它用内置公钥验签，改过的清单一律拒绝。
+            auth = self._auth()
+            if not auth:
+                return self._deny()
+            if not auth.get("is_admin"):
+                return self._json({"ok": False, "error": "仅管理员可上传清单"}, 403)
+            body = self._read_json()
+            if "__error__" in body:
+                return self._json({"ok": False, "error": body["__error__"]}, 400)
+            doc = body.get("manifest") if isinstance(body.get("manifest"), dict) else body
+            if not isinstance(doc, dict) or not doc.get("sig") or not doc.get("client"):
+                return self._json({"ok": False, "error": "清单缺少 sig/client 字段"}, 400)
+            if not isinstance(doc.get("kernels"), dict) or not doc["kernels"]:
+                return self._json({"ok": False, "error": "清单缺少 kernels"}, 400)
+            raw = json.dumps(doc, ensure_ascii=False, sort_keys=True,
+                             separators=(",", ":")).encode("utf-8")
+            path = (globals().get("MANIFEST_FILE") or globals().get("SIGNED_MANIFEST")
+                    or os.path.join(DATA_DIR, "signed_manifest.json"))
+            ts = time.strftime("%Y%m%d-%H%M%S")
+            try:
+                if os.path.exists(path):
+                    shutil.copy2(path, "%s.bak.%s" % (path, ts))
+                tmp = path + ".up"
+                with open(tmp, "wb") as f:
+                    f.write(raw)
+                os.replace(tmp, path)
+            except OSError as e:
+                return self._json({"ok": False, "error": "写入清单失败：%s" % e}, 500)
+            print("[manifest] 已更新签名清单：client %s / kernels %s"
+                  % ((doc.get("client") or {}).get("version"),
+                     {k: (v or {}).get("version") for k, v in (doc.get("kernels") or {}).items()}),
+                  flush=True)
+            return self._json({"ok": True, "bytes": len(raw),
+                               "client_version": (doc.get("client") or {}).get("version"),
+                               "kernels": {k: (v or {}).get("version")
+                                           for k, v in (doc.get("kernels") or {}).items()}})
 
         # ---------------- 账号体系 ----------------
         if p == "/api/auth/register":
