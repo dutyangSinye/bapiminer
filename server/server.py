@@ -3676,7 +3676,7 @@ class Handler(BaseHTTPRequestHandler):
             with _db_lock:
                 c.execute("UPDATE commands SET status=?, finished=?, result=? WHERE id=?",
                           ("done" if body.get("ok") else "failed", time.time(),
-                           str(body.get("result") or "")[:500], body.get("id")))
+                           str(body.get("result") or "")[:8000], body.get("id")))   # 日志类回执需要更长
                 c.commit()
             return self._json({"ok": True})
 
@@ -3722,7 +3722,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"ok": False, "error": "rig/cmd 必填"}, 400)
             if cmd not in {"restart_miner", "start_miner", "stop_miner",
                            "gamemode_on", "gamemode_off", "update_kernel",
-                           "update_client", "set_pool", "set_kernel",
+                           "update_client", "set_pool", "set_kernel", "get_log",
                            "set_display_name", "set_server"}:
                 return self._json({"ok": False, "error": "未知命令: %s" % cmd}, 400)
             if cmd == "set_server":

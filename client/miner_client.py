@@ -119,7 +119,7 @@ def save_config(cfg):
         return False
 
 # 发版时与 BaPiMiner.spec 的 version 一起改：中控端也用 data/client_release.json 里的同值
-CLIENT_VERSION = "1.13.0.15"
+CLIENT_VERSION = "1.13.0.18"
 EXE_PATH = sys.executable if getattr(sys, "frozen", False) else ""
 
 # ---------------------------------------------------------------- 升级链路信任根
@@ -2232,13 +2232,8 @@ def ensure_kernel(kernel_key, kernel_dir, server, token, emit=None, rig_name="",
             return err, cur_ver
         if not os.path.isfile(exe_path):
             return "下载解压后仍缺少 %s" % k["exe"], cur_ver
-        try:
-            for junk in (".old",):
-                p = exe_path + junk
-                if os.path.isfile(p):
-                    os.remove(p)
-        except OSError:
-            pass
+        # 保留 <exe>.old：新内核若起不来，引擎会自动回滚到它（见 _run 的熔断分支）。
+        # 下次升级时会被新的 .old 覆盖，不需要额外清理。
         # 版本号取签名清单里的，不取响应头
         save_kernel_version(kernel_key, kernel_dir, want_ver, want_file)
         if emit:
@@ -2554,6 +2549,9 @@ class MiningEngine:
                 self.revive("内核更新失败后")   # 别把矿工停在已停状态
                 return False, err
             self.revive("内核更新后")
+            self._kernel_swapped_at = time.time()   # 供「起不来就回滚」判断
+            log_write("内核已更新到 %s（备份 %s.old 可用于回滚）"
+                      % (new_v or "?", self.cfg["kernel"]))
             self.emit(event="kernel", version=new_v)
             self.kernel_ver = new_v or old_v
             if new_v and new_v == old_v:
@@ -2617,6 +2615,33 @@ class MiningEngine:
                 old, KERNELS[key]["label"], new_v or "?"))
             self.emit(event="cfg_sync", kernel=key)
             return True, "内核已切换为 %s，矿工重启中（约 1 分钟恢复）" % KERNELS[key]["label"]
+        if cmd == "get_log":
+            # 诊断用：把客户端日志尾部（含矿工 stdout/stderr）带回中控。
+            # 同时回报文件路径/大小/mtime —— 之前拿到的是旧文件内容，
+            # 就是因为不知道客户端实际在写哪个 log。
+            try:
+                n = 200
+                try:
+                    n = max(20, min(800, int((arg or {}).get("lines") or 200)))
+                except (TypeError, ValueError):
+                    pass
+                try:
+                    st = os.stat(LOG_FILE)
+                    meta = "%s | %d 字节 | 修改 %s" % (
+                        LOG_FILE, st.st_size,
+                        time.strftime("%m-%d %H:%M:%S", time.localtime(st.st_mtime)))
+                except OSError:
+                    meta = "%s | (文件不存在)" % LOG_FILE
+                with open(LOG_FILE, "rb") as f:
+                    f.seek(0, 2)
+                    size = f.tell()
+                    f.seek(max(0, size - 64 * 1024))
+                    raw = f.read()
+                lines = raw.decode("utf-8", "replace").splitlines()[-n:]
+                body = "\n".join(lines)
+                return True, ("==== 日志 " + meta + " ====\n" + body)[-6000:]
+            except OSError as e:
+                return False, "读取日志失败：%s" % e
         if cmd == "restart_miner":
             self.revive("中控重启矿工")   # 连熔断一起清掉，否则可能拉不起来
             return True, "矿工已重启"
@@ -2812,8 +2837,33 @@ class MiningEngine:
                         fast_fails = (fast_fails + 1) if alive < 60 else 0
                         self._fast_fails = fast_fails
                         restarts += 1
+                        log_write("矿工退出 rc=%s，存活 %.0f 秒（连续失败 %d 次）"
+                                  % (rc, alive, fast_fails))
                         self.emit(event="log", msg="矿工进程退出(rc=%s)，%.0f 秒后自动拉起（第 %d 次）"
                                   % (rc, 10, restarts))
+                        # ★ 新内核起不来 → 回滚到上一版，别让机器一直停摆
+                        _swapped = getattr(self, "_kernel_swapped_at", 0) or 0
+                        if fast_fails >= 3 and _swapped and time.time() - _swapped < 1800:
+                            try:
+                                kk = KERNELS.get(self.cfg["kernel"]) or {}
+                                kdir = kernel_dir_for(self.cfg["kernel"],
+                                                      self.cfg.get("kernel_dir") or "")
+                                exe2 = os.path.join(kdir, kk.get("exe", ""))
+                                if kk.get("exe") and os.path.isfile(exe2 + ".old"):
+                                    self._kill()
+                                    os.replace(exe2 + ".old", exe2)
+                                    self._kernel_swapped_at = 0
+                                    fast_fails = 0
+                                    self._fast_fails = 0
+                                    log_write("新内核连续 %d 次启动失败，已回滚到上一版（%s）"
+                                              % (3, exe2))
+                                    self.emit(event="error", msg=(
+                                        "新内核起不来（连续 3 次启动后立即退出），已自动回滚到上一版。\n"
+                                        "请把这台机器的内核版本报给发布者——很可能是新内核与驱动/系统不兼容，"
+                                        "或内核文件在该机器上没有正确落盘。"))
+                                    continue
+                            except Exception as e:  # noqa: BLE001
+                                log_write("自动回滚失败: %s" % e)
                         self._kill()
                         if fast_fails >= 6:
                             self.state = "error"
